@@ -1,0 +1,35 @@
+# Local dev stack. LocalStack is scoped to S3 only - Athena's query API isn't
+# emulated in the Community edition. Query-engine testing happens against DuckDB
+# (DATA_LAYER=duckdb below), the same local substitute already used elsewhere
+# in this project.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  localstack:
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEFAULT_REGION=us-east-1
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      RUNTIME_ENV: local
+      DATA_LAYER: duckdb
+      DUCKDB_PATH: /app/fnma.duckdb
+      REDIS_URL: redis://redis:6379/0
+      AWS_ENDPOINT_URL: http://localstack:4566
+    depends_on:
+      - redis
+      - localstack

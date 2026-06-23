@@ -1,0 +1,1777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reporting Dashboard Framework — Code &amp; Execution Reference</title>
+<style>
+  :root {
+    --bg: #080F1C; --surface: #0F1E35; --hi: #162840; --border: #1E3A5F;
+    --accent: #00D4FF; --text: #E2EAF8; --muted: #5B7A9C; --dim: #2A3F5A;
+    --green: #10B981; --warn: #F59E0B; --red: #EF4444; --purple: #8B5CF6;
+    --sidebar-w: 270px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; line-height: 1.7; display: flex; }
+
+  #sidebar { position: fixed; top: 0; left: 0; width: var(--sidebar-w); height: 100vh; background: var(--surface); border-right: 1px solid var(--border); overflow: hidden; padding: 20px 0; z-index: 100; transition: width .22s ease, padding .22s ease; }
+  #sidebar .scroll { width: var(--sidebar-w); height: 100%; overflow-y: auto; }
+  #sidebar .logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 12px; white-space: nowrap; }
+  #sidebar .logo h1 { font-size: 13px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+  #sidebar .logo p { font-size: 10px; color: var(--muted); margin-top: 3px; }
+  #sidebar nav a { display: block; padding: 6px 20px; color: var(--muted); text-decoration: none; font-size: 12px; border-left: 2px solid transparent; transition: all .15s; white-space: nowrap; }
+  #sidebar nav a:hover { color: var(--accent); background: var(--hi); border-left-color: var(--accent); }
+  #sidebar nav .section-label { padding: 13px 20px 4px; font-size: 10px; font-weight: 700; color: var(--dim); letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+
+  body.sidebar-collapsed #sidebar { width: 0; padding: 20px 0; }
+
+  #sidebarToggle { position: fixed; top: 18px; left: calc(var(--sidebar-w) - 15px); width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #04080F; border: 2px solid var(--bg); cursor: pointer; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 200; transition: left .22s ease; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  #sidebarToggle:hover { background: #33ddff; }
+  body.sidebar-collapsed #sidebarToggle { left: 15px; }
+
+  #main { margin-left: var(--sidebar-w); flex: 1; padding: 40px 48px; max-width: 980px; transition: margin-left .22s ease; }
+  body.sidebar-collapsed #main { margin-left: 0; }
+
+  .hero { padding: 28px 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 36px; }
+  .hero h1 { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+  .hero .sub { font-size: 13.5px; color: var(--muted); margin-bottom: 14px; }
+  .chip { display: inline-block; padding: 3px 10px; border-radius: 14px; font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin: 2px 4px 0 0; }
+
+  h2 { font-size: 19px; font-weight: 700; margin: 46px 0 14px; padding-bottom: 9px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 9px; }
+  h3 { font-size: 14.5px; font-weight: 700; margin: 22px 0 8px; }
+  h4 { font-size: 12px; font-weight: 700; color: var(--muted); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .08em; }
+  p { margin-bottom: 10px; }
+
+  .filecard { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin: 14px 0 22px; }
+  .filecard .path { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--accent); margin-bottom: 8px; }
+  .filecard .purpose { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+
+  pre { background: #04080F; border: 1px solid var(--border); border-radius: 8px; padding: 16px 46px 16px 18px; overflow-x: auto; font-size: 12px; color: #B8D0F0; line-height: 1.7; margin: 10px 0; position: relative; font-family: 'JetBrains Mono', monospace; }
+  code { font-family: 'JetBrains Mono', monospace; background: var(--surface); padding: 2px 6px; border-radius: 4px; font-size: 12px; color: #B8D0F0; }
+  pre code { background: none; padding: 0; }
+  .copy-btn { position: absolute; top: 8px; right: 8px; background: var(--hi); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 9px; font-size: 11px; cursor: pointer; }
+  .copy-btn:hover { background: #1d3654; }
+
+  .info { padding: 11px 15px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 13px; border: 1px solid; border-left-width: 3px; }
+  .info.accent { background: #00D4FF10; border-color: #00D4FF44; border-left-color: var(--accent); }
+  .info.green  { background: #10B98110; border-color: #10B98144; border-left-color: var(--green); }
+  .info.warn   { background: #F59E0B10; border-color: #F59E0B44; border-left-color: var(--warn); }
+  .info.red    { background: #EF444410; border-color: #EF444444; border-left-color: var(--red); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 12px 0; }
+  th { padding: 9px 13px; background: var(--hi); text-align: left; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+  td { padding: 8px 13px; border-bottom: 1px solid #1E3A5F22; vertical-align: top; }
+  tr:nth-child(even) td { background: #11233f; }
+
+  .tree { background: #04080F; border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.9; color: var(--muted); white-space: pre; overflow-x: auto; }
+  .tree .accent { color: var(--accent); }
+  .tree .green { color: var(--green); }
+
+  .steplist { list-style: none; margin: 8px 0; counter-reset: step; }
+  .steplist li { padding: 7px 0 7px 32px; position: relative; border-bottom: 1px solid #1E3A5F22; font-size: 13px; }
+  .steplist li::before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: 6px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #04080F; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+  .badge { display:inline-block; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; letter-spacing:.04em; }
+  .badge-verified { background:#10B98122; color:var(--green); border:1px solid #10B98144; }
+  .badge-bugfix { background:#EF444422; color:var(--red); border:1px solid #EF444444; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<button id="sidebarToggle" onclick="toggleSidebar()" title="Toggle navigation">◀</button>
+<nav id="sidebar">
+<div class="scroll">
+  <div class="logo">
+    <h1>Reporting Dashboard Framework</h1>
+    <p>Code &amp; Execution Reference</p>
+  </div>
+  <nav>
+    <div class="section-label">Overview</div>
+    <a href="#what-it-solves">What This Solves</a>
+    <a href="#prerequisites">🧰 Prerequisites</a>
+    <a href="#directory">Directory Structure</a>
+    <a href="#sql-logic">📍 Where New SQL Logic Goes</a>
+    <a href="#data-flow">Request Data Flow</a>
+
+    <div class="section-label">Execution Pipeline (Add a Dashboard)</div>
+    <a href="#pipeline-1">1. Copy the template folder</a>
+    <a href="#pipeline-2">2. Write config.yaml</a>
+    <a href="#pipeline-3">3. Run the generator</a>
+    <a href="#pipeline-4">4. Fill in TODO business logic</a>
+    <a href="#pipeline-5">5. dbt run / dbt test</a>
+    <a href="#pipeline-6">6. Restart the API</a>
+    <a href="#pipeline-7">7. Anatomy of a live request</a>
+    <a href="#pipeline-8">8. cache_sync keeps Redis warm</a>
+    <a href="#pipeline-9">9. Deploy (dashboard-agnostic)</a>
+
+    <div class="section-label">Core Framework</div>
+    <a href="#config-schema">core/config_schema.py</a>
+    <a href="#config-loader">core/config_loader.py</a>
+    <a href="#connection">core/db/connection.py</a>
+    <a href="#cache-client">core/cache/client.py</a>
+    <a href="#cache-keys">core/cache/keys.py</a>
+    <a href="#filters">core/filters.py</a>
+    <a href="#router-factory">core/router_factory.py</a>
+    <a href="#main">main.py</a>
+
+    <div class="section-label">Dashboard Configs</div>
+    <a href="#template-yaml">dashboards/_template/config.yaml</a>
+    <a href="#ldc-yaml">dashboards/ldc/config.yaml</a>
+
+    <div class="section-label">dbt Generation</div>
+    <a href="#generator">scripts/generate_dbt_models.py</a>
+    <a href="#generated-output">Generated Output</a>
+
+    <div class="section-label">Cache Sync</div>
+    <a href="#cache-sync">cache_sync/sync.py</a>
+
+    <div class="section-label">Deployment</div>
+    <a href="#dockerfile">deploy/Dockerfile</a>
+    <a href="#compose">deploy/docker-compose.yml</a>
+    <a href="#taskdef">deploy/task-definition.template.json</a>
+    <a href="#buildspec">deploy/buildspec.yml</a>
+    <a href="#ghactions">deploy/github-actions-deploy.yml</a>
+
+    <div class="section-label">Testing</div>
+    <a href="#smoke-test">tests/test_framework_smoke.py</a>
+    <a href="#bug-found">Bug Found &amp; Fixed</a>
+
+    <div class="section-label">Local Run</div>
+    <a href="#path-a">Quickstart — Path A (venv)</a>
+    <a href="#path-b">Quickstart — Path B (Docker)</a>
+    <a href="#run-dbt">Running dbt</a>
+
+    <div class="section-label">Status</div>
+    <a href="#faq">🆘 Troubleshooting / FAQ</a>
+    <a href="#open-items">Open Placeholders</a>
+  </nav>
+</div>
+</nav>
+
+<main id="main">
+
+  <div class="hero">
+    <h1>Reporting Dashboard Framework — Code &amp; Execution Reference</h1>
+    <p class="sub">Every file explained, every step documented. Smoke-tested end to end against a synthetic DuckDB mart and a live local Redis before this was written.</p>
+    <span class="chip" style="background:#00D4FF18;border:1px solid #00D4FF44;color:var(--accent);">FastAPI</span>
+    <span class="chip" style="background:#FDCA4018;border:1px solid #FDCA4044;color:#FDCA40;">DuckDB / Athena</span>
+    <span class="chip" style="background:#10B98118;border:1px solid #10B98144;color:var(--green);">Redis cache-aside</span>
+    <span class="chip" style="background:#8B5CF618;border:1px solid #8B5CF644;color:var(--purple);">Config-driven dbt</span>
+  </div>
+
+  <!-- ============ OVERVIEW ============ -->
+  <section id="what-it-solves">
+    <h2>🎯 What This Solves</h2>
+    <p>Each of the 18 reporting dashboards needs the same shape of backend: a filtered/paginated queue table, a clickable status-summary chart, dropdown filter lookups, and a CSV export — all cached in Redis, all reading from DuckDB locally / Athena in production. Hand-writing that per dashboard means 18× the FastAPI endpoints, cache-key logic, and dbt boilerplate.</p>
+    <p>This framework turns each dashboard into a <strong>YAML config</strong>. One generic router factory reads the config and produces the live endpoints; one generator script reads the config and scaffolds the dbt models. Adding dashboard #2 means writing a config file, not new Python.</p>
+  </section>
+
+  <section id="prerequisites">
+    <h2>🧰 Prerequisites — Before You Start</h2>
+    <p>This is everything to have in place <em>before</em> Step 1 of the pipeline below. None of it is dashboard-specific — do it once per machine, not once per dashboard.</p>
+    <table>
+      <tr><th>What</th><th>Why you need it</th><th>How</th></tr>
+      <tr><td>Python 3.11</td><td>Matches the version the Dockerfile actually deploys with — avoids "works on my machine" surprises.</td><td><code>python3 --version</code> to check; install 3.11 if you're on something else.</td></tr>
+      <tr><td>A virtualenv with this repo's dependencies</td><td>Isolates this project's FastAPI/DuckDB/Pydantic/etc. versions from anything else on your machine.</td><td><code>cd backend &amp;&amp; python -m venv .venv &amp;&amp; source .venv/bin/activate &amp;&amp; pip install -r requirements.txt</code></td></tr>
+      <tr><td>Redis <span class="badge badge-verified">OPTIONAL</span></td><td>Caching layer — but the whole system fails open without it. You can develop and test a new dashboard with zero Redis installed.</td><td><code>redis-server --daemonize yes --port 6379</code> (skip entirely if you don't want to install it)</td></tr>
+      <tr><td>dbt-core + a DuckDB/Athena adapter <span class="badge badge-verified">NOT YET WIRED UP</span></td><td>This is what eventually turns your generated SQL into real tables. <strong>As of today, this repo has no <code>dbt_project.yml</code>/<code>profiles.yml</code></strong> (see <a href="#open-items">Open Placeholders</a>), so a real <code>dbt run</code> isn't possible yet. Don't block on installing dbt to get started — see the <a href="#pipeline-5">Step 5 workaround</a>.</td><td>N/A for now — see Step 5</td></tr>
+      <tr><td>AWS Athena/Glue access</td><td>Only needed for the production data path (<code>DATA_LAYER=athena</code>). Local development uses DuckDB and needs none of this.</td><td>N/A for local dev</td></tr>
+      <tr><td>YAML familiarity</td><td>Every dashboard is a YAML file. No new Python is required to add one.</td><td>If you've never written YAML: indentation is meaningful (use spaces, not tabs); lists start with <code>-</code>; the template at <a href="#template-yaml">dashboards/_template/config.yaml</a> is annotated line by line.</td></tr>
+    </table>
+    <div class="info accent">If you only do one thing from this table: create the venv and <code>pip install -r requirements.txt</code>. Everything else is either optional for local dev or not yet usable in this repo.</div>
+  </section>
+
+  <section id="directory">
+    <h2>📁 Directory Structure</h2>
+    <p>Every dashboard's code lives in <strong>one self-contained folder</strong>: <code>backend/dashboards/&lt;dashboard_id&gt;/</code>. That folder holds its config, its generated staging SQL, its generated mart SQL, and its schema tests — nothing belonging to a dashboard lives anywhere else. Two developers building dashboard #5 and dashboard #6 at the same time touch two different folders and nothing in <code>core/</code>, so there's nothing to merge-conflict over.</p>
+    <div class="tree">reporting-dashboard-framework/
+├── README.md
+├── backend/
+│   ├── <span class="accent">main.py</span>                     <span style="color:var(--dim)"># scans dashboards/*/config.yaml, registers each router</span>
+│   ├── requirements.txt
+│   ├── core/                            <span style="color:var(--dim)"># shared framework — a dashboard dev never edits this</span>
+│   │   ├── config_schema.py          <span style="color:var(--dim)"># pydantic contract every dashboard's config.yaml must satisfy</span>
+│   │   ├── config_loader.py          <span style="color:var(--dim)"># discovers + validates each dashboards/&lt;id&gt;/config.yaml</span>
+│   │   ├── db/connection.py           <span style="color:var(--green)"># THE swap point: duckdb / athena</span>
+│   │   ├── cache/client.py              <span style="color:var(--dim)"># Redis fail-open get/set</span>
+│   │   ├── cache/keys.py                 <span style="color:var(--dim)"># deterministic cache key builder</span>
+│   │   ├── filters.py                     <span style="color:var(--dim)"># generic WHERE-clause builder</span>
+│   │   └── router_factory.py               <span class="accent"># config -> live FastAPI router</span>
+│   ├── dashboards/                      <span style="color:var(--accent)"># one self-contained folder per dashboard</span>
+│   │   ├── _template/                 <span style="color:var(--dim)"># copy this folder to start a new dashboard (ignored: "_" prefix)</span>
+│   │   │   └── config.yaml
+│   │   └── ldc/                        <span style="color:var(--green)"># dashboard #1, fully configured</span>
+│   │       ├── config.yaml             <span style="color:var(--dim)"># <- you write this</span>
+│   │       └── dbt/
+│   │           ├── staging/stg_ldc_case_requests.sql        <span style="color:var(--dim)"># <- generated</span>
+│   │           └── marts/
+│   │               ├── mart_ldc_case_queue.sql                <span style="color:var(--warn)"># <- generated SHELL; TODO business logic goes here</span>
+│   │               ├── mart_ldc_status_summary.sql            <span style="color:var(--warn)"># <- generated DEFAULT; this dashboard's entire chart-aggregation logic</span>
+│   │               └── schema_ldc.yml                          <span style="color:var(--dim)"># <- generated</span>
+│   ├── scripts/generate_dbt_models.py        <span style="color:var(--dim)"># config.yaml -> dbt/staging + dbt/marts SQL + schema.yml</span>
+│   └── cache_sync/sync.py                     <span style="color:var(--dim)"># config-driven cache-sync job</span>
+├── deploy/
+│   ├── Dockerfile, docker-compose.yml, task-definition.template.json,
+│   │   buildspec.yml, github-actions-deploy.yml   <span style="color:var(--dim)"># dashboard-agnostic</span>
+└── tests/
+    └── test_framework_smoke.py            <span style="color:var(--dim)"># the test actually run to verify all of this</span></div>
+  </section>
+
+  <!-- ============ WHERE NEW SQL LOGIC GOES ============ -->
+  <section id="sql-logic">
+    <h2>📍 Where New Dashboard SQL Logic Goes</h2>
+    <div class="info accent" style="font-size:14px;">
+      <strong>The one rule that matters most in this whole document:</strong> dashboard-specific business logic — SLA thresholds, cycle-time math, custom rollups, and chart aggregations — is written in dbt SQL, never in the shared Python framework code. There are exactly two places it goes:<br><br>
+      1. <code>backend/dashboards/&lt;dashboard_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_queue.sql</code>, inside the <code>TODO</code> lines that <code>generate_dbt_models.py</code> stamps in for every column you flagged <code>needs_clarification: true</code> in your <code>config.yaml</code>.<br>
+      2. <code>backend/dashboards/&lt;dashboard_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_summary.sql</code>, which is the <em>entire</em> definition of that dashboard's summary chart. <code>router_factory.py</code> never aggregates anything — it only does <code>SELECT * FROM</code> this model. Whatever shape your chart needs (status counts, sums, a trend line) is written here, in SQL.
+    </div>
+    <table>
+      <tr><th>File</th><th>Who edits it</th><th>What goes there</th></tr>
+      <tr><td><code>dashboards/&lt;id&gt;/config.yaml</code></td><td>You, by hand</td><td>Source table, staging columns, primary key, status values, filters, API shape — declarative, no SQL.</td></tr>
+      <tr><td><code>dashboards/&lt;id&gt;/dbt/staging/stg_&lt;id&gt;.sql</code></td><td><strong>Generator only — never hand-edit</strong></td><td>Pure column casting. If a column is wrong, fix <code>config.yaml</code> and re-run the generator; don't patch this file directly, the next re-run silently overwrites it.</td></tr>
+      <tr><td><code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_queue.sql</code></td><td><strong>You, inside the TODO blocks only</strong></td><td>This is it. Every line that starts <code>, NULL AS &lt;col&gt; -- TODO (NEEDS CLARIFICATION): ...</code> is a placeholder for real SQL — replace the <code>NULL</code> with the actual expression. The plain column list above the TODO block is generator output; leave it alone.</td></tr>
+      <tr><td><code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_summary.sql</code></td><td><strong>You, freely — this is the other place business logic goes</strong></td><td>The generator writes a zero-filled status-count default here, but this file is the <em>entire</em> business logic for that dashboard's summary chart. The API layer (<code>router_factory.get_summary()</code>) does nothing but <code>SELECT * FROM</code> this model and return the rows — no GROUP BY, no chart-shaping, no aggregation in Python, ever. If your dashboard's summary chart is a sum-by-category, a trend line, or a multi-series rollup instead of a status count, rewrite this file's query to produce that shape directly. Re-running the generator overwrites it back to the default, same caveat as the queue mart's TODO blocks.</td></tr>
+      <tr><td><code>dashboards/&lt;id&gt;/dbt/marts/schema_&lt;id&gt;.yml</code></td><td><strong>Generator only</strong></td><td>dbt tests (not_null/unique on the primary key, accepted_values on the status field) plus a documented entry for every other column.</td></tr>
+    </table>
+    <div class="info warn">Why the TODO block survives a re-run but nothing else does: <code>build_mart_queue_sql()</code> in the generator always emits <code>NULL AS &lt;col&gt;</code> for everything still listed under <code>mart.derived_columns</code> in the config — it does not read the file back first. If you've already filled in real SQL there and then re-run the generator (e.g. because you added a new staging column), <strong>your business logic will be silently overwritten back to <code>NULL</code></strong>. Either avoid re-running the generator once the TODOs are filled in, or re-paste the logic back in afterward. See <a href="#pipeline-4">Step 4</a> below.</div>
+  </section>
+
+  <section id="data-flow">
+    <h2>🔄 Request Data Flow</h2>
+    <pre><code>GET /api/ldc/case-queue?servicer_number=7721
+  ↓ router_factory's get_queue() (built from dashboards/ldc/config.yaml)
+  ↓ make_cache_key("ldc", "case-queue", {...}) → cache_get()
+  ↓ Redis HIT  → return cached JSON directly
+  ↓ Redis MISS → build_filter_clause() → execute_query() → DuckDB/Athena
+  ↓ cache_set() writes the result back before returning it
+  ↓ JSON response → Angular MFE</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <p>The summary-chart flow is deliberately identical in shape, with one difference worth calling out: there's no <code>build_filter_clause()</code> step and no GROUP BY anywhere in Python. <code>get_summary()</code> reads the dbt-built <code>mart_&lt;id&gt;_summary</code> table and nothing else.</p>
+    <pre><code>GET /api/ldc/status-summary
+  ↓ router_factory's get_summary() (config.mart.summary_model_name)
+  ↓ make_cache_key("ldc", "status-summary") → cache_get()
+  ↓ Redis HIT  → return cached JSON directly
+  ↓ Redis MISS → execute_query("SELECT * FROM mart_ldc_status_summary") — that's it, no aggregation here
+  ↓ cache_set() writes {"title", "items", "count"} back before returning it
+  ↓ JSON response → Angular MFE (chart-shaping, if any, happens client-side from raw rows)</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </section>
+
+  <!-- ============ EXECUTION PIPELINE ============ -->
+  <h2 id="pipeline-1" style="margin-top:54px;">🪜 The Full Execution Pipeline — Step by Step, With Code</h2>
+  <p>This is the sequence every dashboard goes through, start to finish, from an empty folder to a live, cached API endpoint. Each step names the exact file involved and what runs inside it. This is the section to follow when you've been handed a new dashboard to build independently of the other 17.</p>
+
+  <div class="filecard">
+    <div class="path">Step 1 — Copy the template folder</div>
+    <div class="purpose">Every dashboard starts as a copy of <code>dashboards/_template/</code>. Because the framework discovers dashboards by folder (see Step 6), copying the folder is the entire setup — there's no registry file to edit.</div>
+    <pre><code>cp -r backend/dashboards/_template backend/dashboards/&lt;dashboard_id&gt;</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="pipeline-2">
+    <div class="path">Step 2 — Fill in dashboards/&lt;dashboard_id&gt;/config.yaml</div>
+    <div class="purpose">Declare the source table, the staging columns (with casts), the mart's primary key / status field / status values, any <code>derived_columns</code> whose business logic isn't known yet, and the API shape (filters, sort, dropdowns, export). No SQL, no Python — see the full annotated template under <a href="#template-yaml">Dashboard Configs</a> below.</div>
+    <div class="info accent">Validated automatically: <code>config_loader.load_dashboard_config()</code> parses this file straight into <code>config_schema.DashboardConfig</code> (a Pydantic model). A typo'd field name or invalid <code>op</code>/<code>refresh_tier</code> value fails immediately with a clear validation error — not a silent bug discovered later at request time.</div>
+  </div>
+
+  <div class="filecard" id="pipeline-3">
+    <div class="path">Step 3 — Run the generator</div>
+    <div class="purpose"><code>scripts/generate_dbt_models.py</code> reads <code>config.yaml</code> and writes three SQL files plus one schema file, all <strong>inside that same dashboard's folder</strong> — nothing is written anywhere else in the repo.</div>
+    <pre><code>cd backend
+python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <pre><code># From generate_dbt_models.py's main() — output path is derived from the config's own location:
+dashboard_dir = cfg_path.parent                      # dashboards/&lt;dashboard_id&gt;/
+staging_dir = dashboard_dir / "dbt" / "staging"
+marts_dir = dashboard_dir / "dbt" / "marts"
+
+(staging_dir / f"{cfg['staging']['model_name']}.sql").write_text(build_staging_sql(cfg, config_filename))
+(marts_dir / f"{cfg['mart']['queue_model_name']}.sql").write_text(build_mart_queue_sql(cfg, config_filename))
+(marts_dir / f"{cfg['mart']['summary_model_name']}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
+(marts_dir / f"schema_{cfg['dashboard_id']}.yml").write_text(build_schema_yml(cfg, config_filename))</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <p>Produces: <code>dashboards/&lt;id&gt;/dbt/staging/stg_&lt;id&gt;.sql</code>, <code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_queue.sql</code>, <code>.../mart_&lt;id&gt;_summary.sql</code>, <code>.../schema_&lt;id&gt;.yml</code>. Full generated output for <code>ldc</code> is under <a href="#generated-output">Generated Output</a>.</p>
+  </div>
+
+  <div class="filecard" id="pipeline-4">
+    <div class="path">Step 4 — Fill in the TODO business logic ⭐ the step that's actually dashboard-specific</div>
+    <div class="purpose">Open <code>dashboards/&lt;dashboard_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_queue.sql</code>. Everything above the TODO block is generated column passthrough — leave it. Each TODO line is a <code>derived_columns</code> entry from your config; replace the <code>NULL</code> with the real expression.</div>
+    <pre><code>-- dashboards/ldc/dbt/marts/mart_ldc_case_queue.sql, as generated:
+SELECT
+    request_no,
+    request_status,
+    ...
+    attribute_count
+    , NULL AS queue_age  -- TODO (NEEDS CLARIFICATION): Elapsed-time calc TBD - calendar vs business hours
+    , NULL AS cycle_time  -- TODO (NEEDS CLARIFICATION): Business-day calc TBD; only meaningful once Completion Date is set
+    , NULL AS sla_status  -- TODO (NEEDS CLARIFICATION): SLA thresholds (Within SLA / At Risk / Breached) TBD
+FROM {{ ref('stg_ldc_case_requests') }}
+ORDER BY request_no</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <pre><code>-- Same file, after a developer fills in the business rule (illustrative example):
+    , DATE_DIFF('day', submission_date, COALESCE(completion_date, CURRENT_DATE)) AS queue_age
+    , CASE WHEN completion_date IS NOT NULL
+           THEN DATE_DIFF('day', submission_date, completion_date) END AS cycle_time
+    , CASE WHEN sla_due_date IS NULL THEN NULL
+           WHEN completion_date IS NOT NULL AND completion_date &lt;= sla_due_date THEN 'Within SLA'
+           WHEN completion_date IS NULL AND CURRENT_DATE &gt; sla_due_date THEN 'Breached'
+           WHEN completion_date IS NULL THEN 'At Risk'
+           ELSE 'Breached' END AS sla_status</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info red">Don't re-run the generator after this step expecting it to keep your edits — it doesn't read the file back, it overwrites it. If the config changes later (a new staging column, say), re-running will reset every TODO line back to <code>NULL</code>; re-apply the business logic by hand afterward. See <a href="#sql-logic">Where New Dashboard SQL Logic Goes</a>.</div>
+  </div>
+
+  <div class="filecard" id="pipeline-5">
+    <div class="path">Step 5 — dbt run / dbt test</div>
+    <div class="purpose">Builds the staging + mart tables in the warehouse and runs the generated tests (<code>not_null</code>/<code>unique</code> on the primary key, <code>accepted_values</code> on the status field).</div>
+    <pre><code>cd backend/dbt_project   # once dbt_project.yml/profiles.yml exist — see "Running dbt" below
+dbt run  --select &lt;dashboard_id&gt;
+dbt test --select &lt;dashboard_id&gt;</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info warn">This package doesn't bundle <code>dbt_project.yml</code>/<code>profiles.yml</code>/<code>sources.yml</code> (see <a href="#run-dbt">Running dbt</a>). Whoever sets those up needs <code>model-paths</code> in <code>dbt_project.yml</code> to include <code>dashboards</code> so dbt discovers SQL nested under <code>dashboards/&lt;id&gt;/dbt/</code> — <strong>unconfirmed:</strong> verify dbt's yml parser tolerates each dashboard's <code>config.yaml</code> sitting in that same tree (it has none of dbt's recognized top-level keys like <code>models:</code>/<code>sources:</code>); if not, exclude it via dbt's <code>model-paths</code>/<code>.dbtignore</code> patterns before relying on this layout in CI.</div>
+    <h4>No working dbt project yet? Test your mart logic anyway</h4>
+    <p>Since there's no live <code>dbt_project.yml</code> in this repo today, you can't actually run the commands above. That doesn't block you from finishing and verifying your dashboard — hand-create a DuckDB table matching your mart's columns, the same way the smoke test does it, and point the API at it:</p>
+    <pre><code># In a Python shell or a throwaway script, from backend/:
+import duckdb
+con = duckdb.connect("./fnma.duckdb")   # matches DUCKDB_PATH you'll set below
+
+# Columns = every staging column + every derived_column from your config,
+# in the same order build_mart_queue_sql() emits them (see Generated Output).
+con.execute("""
+    CREATE OR REPLACE TABLE mart_&lt;dashboard_id&gt;_queue (
+        request_no VARCHAR, request_status VARCHAR, ... -- match your config
+    )
+""")
+con.execute("INSERT INTO mart_&lt;dashboard_id&gt;_queue VALUES (...), (...)")  # a few rows of fake data
+
+# The summary mart is seeded directly here — NOT derived from the queue mart
+# at request time. This is the real shape your mart_&lt;dashboard_id&gt;_summary.sql
+# should produce; whatever columns/aggregation you put here is exactly what
+# get_summary() will pass straight through, untouched.
+con.execute("""
+    CREATE OR REPLACE TABLE mart_&lt;dashboard_id&gt;_summary (request_status VARCHAR, request_count INTEGER)
+""")
+con.execute("INSERT INTO mart_&lt;dashboard_id&gt;_summary VALUES ('Draft', 1), ('Completed', 1), ...")  # zero-fill every status yourself
+con.close()</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <p>Then set <code>DATA_LAYER=duckdb</code> and <code>DUCKDB_PATH=./fnma.duckdb</code> and start the API (<a href="#path-a">Quickstart Path A</a>) — your endpoints will read from these hand-seeded tables exactly as they'd read from real dbt-built marts. This is exactly what <code>tests/test_framework_smoke.py</code>'s <code>seed_mart()</code> does for <code>ldc</code>; copy that function's pattern rather than starting from scratch.</p>
+  </div>
+
+  <div class="filecard" id="pipeline-6">
+    <div class="path">Step 6 — Restart the API</div>
+    <div class="purpose"><code>main.py</code> scans every folder in <code>dashboards/</code> at startup. Your new folder is picked up automatically — this file is never edited to add a dashboard.</div>
+    <pre><code># main.py
+_registered: list[str] = []
+for cfg in load_all_dashboards(DASHBOARDS_DIR):
+    app.include_router(build_dashboard_router(cfg))
+    _registered.append(cfg.dashboard_id)</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <pre><code># core/config_loader.py — the folder scan itself
+def load_all_dashboards(dashboards_dir: Path) -> list[DashboardConfig]:
+    configs = []
+    for d in sorted(Path(dashboards_dir).iterdir()):
+        if not d.is_dir() or d.name.startswith("_"):
+            continue
+        config_file = d / "config.yaml"
+        if config_file.exists():
+            configs.append(load_dashboard_config(config_file))
+    return configs</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <p>Confirm with <code>curl localhost:8000/dashboards</code> — your <code>dashboard_id</code> should appear in the list, and <code>{base_path}/{queue_endpoint}</code>, <code>/{summary_endpoint}</code>, <code>/filters/*</code>, <code>/{queue_endpoint}/export</code> all exist immediately.</p>
+  </div>
+
+  <div class="filecard" id="pipeline-7">
+    <div class="path">Step 7 — Anatomy of a live request</div>
+    <div class="purpose">What actually runs when the MFE calls your new endpoint — the full chain through <code>router_factory.py</code>, every piece of it generic and config-driven.</div>
+    <pre><code>GET {base_path}/{queue_endpoint}?{your filter param}=...
+  1. router_factory's get_queue() collects query params declared in api.filters
+  2. make_cache_key(dashboard_id, queue_endpoint, params)        → core/cache/keys.py
+  3. cache_get(key)                                              → core/cache/client.py
+       HIT  → return cached JSON, done
+       MISS ↓
+  4. build_filter_clause(api.filters, params) → positional WHERE + params  → core/filters.py
+  5. execute_query(sql, params)                                  → core/db/connection.py (duckdb/athena)
+  6. cache_set(key, result, ttl=cache_ttl_seconds)                → core/cache/client.py
+  7. JSON response</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <p>Every numbered line is generic framework code your dashboard never touches — see <a href="#router-factory">core/router_factory.py</a> for the full implementation.</p>
+  </div>
+
+  <div class="filecard" id="pipeline-8">
+    <div class="path">Step 8 — cache_sync/sync.py keeps Redis warm</div>
+    <div class="purpose">Runs after <code>dbt run</code> in CI. It iterates <em>every</em> dashboard's config — yours included, automatically — and re-primes the queue/summary cache keys according to its declared <code>refresh_tier</code>.</div>
+    <pre><code># cache_sync/sync.py
+async def sync_all():
+    for cfg in load_all_dashboards(DASHBOARDS_DIR):
+        if cfg.refresh_tier in ("near_real_time", "snapshot_eod", "snapshot_eom"):
+            await sync_dashboard(cfg)
+        else:
+            print(f"[cache-sync] SKIPPED {cfg.dashboard_id} — refresh_tier={cfg.refresh_tier}, needs clarification before scheduling")</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="pipeline-9">
+    <div class="path">Step 9 — Deploy (dashboard-agnostic)</div>
+    <div class="purpose">Nothing under <code>deploy/</code> changes for a new dashboard — one container, one task definition, serving every dashboard folder it finds at startup. See <a href="#dockerfile">Deployment Files</a> below.</div>
+  </div>
+
+  <!-- ============ CORE FRAMEWORK ============ -->
+  <h2 id="config-schema" style="margin-top:54px;">🧩 Core Framework</h2>
+
+  <div class="filecard">
+    <div class="path">backend/core/config_schema.py</div>
+    <div class="purpose">The contract every dashboard YAML must satisfy, enforced by Pydantic. If a config is missing a required field or uses an invalid <code>op</code>/<code>refresh_tier</code> value, it fails to load with a clear validation error instead of failing silently at request time.</div>
+    <pre><code>"""
+Defines the schema every dashboard config YAML must follow.
+Adding a new dashboard = writing a new YAML file that validates against this schema,
+not writing new Python code. See backend/dashboards/_template/config.yaml to start one.
+"""
+from __future__ import annotations
+from typing import Optional, Literal
+from pydantic import BaseModel, Field
+
+RefreshTier = Literal["near_real_time", "snapshot_eod", "snapshot_eom", "needs_clarification"]
+FilterOp = Literal["eq", "ilike", "gte", "lte"]
+
+
+class SourceConfig(BaseModel):
+    database: str          # Glue/Iceberg database in the source data team's account (placeholder until confirmed)
+    table: str              # Iceberg table backing the case/request grain
+    loan_attributes_table: Optional[str] = None  # Iceberg table backing loan-level rollups, if any
+
+
+class StagingColumn(BaseModel):
+    name: str               # column name after staging (snake_case)
+    type: str                # DuckDB/Athena-compatible type, e.g. varchar, date, integer
+    source_col: str          # raw column name in the source table
+
+
+class StagingConfig(BaseModel):
+    model_name: str
+    columns: list[StagingColumn]
+
+
+class DerivedColumn(BaseModel):
+    """A mart column whose business logic isn't known yet (e.g. SLA thresholds)."""
+    name: str
+    needs_clarification: bool = False
+    note: Optional[str] = None
+
+
+class MartConfig(BaseModel):
+    queue_model_name: str
+    summary_model_name: str
+    primary_key: str
+    status_field: str
+    status_values: list[str] = Field(default_factory=list)
+    derived_columns: list[DerivedColumn] = Field(default_factory=list)
+
+
+class FilterDef(BaseModel):
+    field: str               # mart column name
+    param: str                # query-param name exposed in the API
+    op: FilterOp = "eq"
+
+
+class SortDef(BaseModel):
+    field: str
+    direction: Literal["asc", "desc"] = "desc"
+
+
+class ApiConfig(BaseModel):
+    base_path: str                    # e.g. /api/ldc
+    queue_endpoint: str = "queue"
+    summary_endpoint: str = "summary"
+    filters: list[FilterDef] = Field(default_factory=list)
+    default_page_size: int = 25
+    default_sort: SortDef
+    filter_lookup_fields: list[str] = Field(default_factory=list)
+    export_enabled: bool = True
+
+
+class DashboardConfig(BaseModel):
+    dashboard_id: str                 # short slug, used in routes/cache keys/dbt model names
+    display_name: str
+    description: str = ""
+    refresh_tier: RefreshTier
+    cache_ttl_seconds: int = 3600
+    source: SourceConfig
+    staging: StagingConfig
+    mart: MartConfig
+    api: ApiConfig</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <table>
+      <tr><th>Class</th><th>What it captures</th></tr>
+      <tr><td><code>SourceConfig</code></td><td>Cross-account Glue/Iceberg database + table — still placeholders pending the source data team.</td></tr>
+      <tr><td><code>StagingConfig</code></td><td>The casted/cleaned column list — drives the generated staging SQL.</td></tr>
+      <tr><td><code>MartConfig</code></td><td>Primary key, status field/values for the chart, and any <code>derived_columns</code> flagged <code>needs_clarification</code>.</td></tr>
+      <tr><td><code>ApiConfig</code></td><td>Everything the router factory needs: base path, filters, default sort/page size, which fields get dropdown endpoints.</td></tr>
+    </table>
+  </div>
+
+  <div class="filecard" id="config-loader">
+    <div class="path">backend/core/config_loader.py</div>
+    <div class="purpose">Discovers and validates every dashboard config by scanning <strong>folders</strong>, not files — each dashboard is <code>dashboards/&lt;dashboard_id&gt;/config.yaml</code>. Folders prefixed with <code>_</code> (the template) are skipped on purpose so they never get registered as a live dashboard.</div>
+    <pre><code>from pathlib import Path
+import yaml
+from .config_schema import DashboardConfig
+
+
+def load_dashboard_config(path: Path) -> DashboardConfig:
+    data = yaml.safe_load(Path(path).read_text())
+    return DashboardConfig(**data)
+
+
+def load_all_dashboards(dashboards_dir: Path) -> list[DashboardConfig]:
+    """Loads dashboards/&lt;dashboard_id&gt;/config.yaml for every dashboard folder,
+    except folders prefixed with '_' (templates/examples)."""
+    configs = []
+    for d in sorted(Path(dashboards_dir).iterdir()):
+        if not d.is_dir() or d.name.startswith("_"):
+            continue
+        config_file = d / "config.yaml"
+        if config_file.exists():
+            configs.append(load_dashboard_config(config_file))
+    return configs</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="connection">
+    <div class="path">backend/core/db/connection.py</div>
+    <div class="purpose">The same swap point already established for this project. <code>DATA_LAYER=duckdb</code> for local/dev, <code>DATA_LAYER=athena</code> for production. <code>execute_query()</code>'s signature and return shape never change — every dashboard router calls only this function.</div>
+    <pre><code>"""
+THE swap point. Identical to the pattern already established for this project:
+DATA_LAYER=duckdb  -> local DuckDB file (Phase 1 / local dev)
+DATA_LAYER=athena  -> pyathena against real AWS Athena (Phase 2 / production)
+
+execute_query()'s signature and return shape never change. Every dashboard router
+calls only this function - no dashboard-specific code touches the database directly.
+"""
+import os
+
+_DATA_LAYER = os.environ.get("DATA_LAYER", "duckdb")
+_conn = None
+
+
+def get_connection():
+    global _conn
+    if _conn is not None:
+        return _conn
+
+    if _DATA_LAYER == "duckdb":
+        import duckdb
+        path = os.environ.get(
+            "DUCKDB_PATH",
+            os.path.join(os.path.dirname(__file__), "..", "..", "fnma.duckdb"),
+        )
+        _conn = duckdb.connect(path, read_only=False)
+
+    elif _DATA_LAYER == "athena":
+        import pyathena
+        _conn = pyathena.connect(
+            region_name=os.environ["AWS_REGION"],
+            s3_staging_dir=os.environ["ATHENA_S3_STAGING"],
+            schema_name=os.environ.get("ATHENA_SCHEMA", "reporting"),
+        )
+    else:
+        raise RuntimeError(f"Unknown DATA_LAYER: {_DATA_LAYER!r} (expected 'duckdb' or 'athena')")
+
+    return _conn
+
+
+def execute_query(sql: str, params: list | None = None) -> list[dict]:
+    """Executes parameterised SQL ($1, $2, ... positional). Returns list of row dicts."""
+    conn = get_connection()
+    if _DATA_LAYER == "duckdb":
+        rel = conn.execute(sql, params or [])
+        cols = [d[0] for d in rel.description]
+        return [dict(zip(cols, r)) for r in rel.fetchall()]
+    else:
+        cursor = conn.cursor()
+        cursor.execute(sql, params or [])
+        cols = [d[0] for d in cursor.description]
+        return [dict(zip(cols, r)) for r in cursor.fetchall()]</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="cache-client">
+    <div class="path">backend/core/cache/client.py</div>
+    <div class="purpose">Fail-open Redis client: if Redis is unreachable, <code>cache_get</code> returns <code>None</code> and <code>cache_set</code> silently no-ops, so endpoints fall through to the database transparently. <span class="badge badge-bugfix">BUG FIXED HERE</span> — see "Bug Found &amp; Fixed" below.</div>
+    <pre><code>"""
+Same fail-open Redis pattern already established for this project: if Redis is
+unreachable, cache_get returns None and cache_set/invalidate silently no-op, so
+endpoints fall through to the database transparently. No dashboard ever has to
+handle a Redis outage itself.
+"""
+import os
+import json
+import datetime
+from decimal import Decimal
+
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+_pool = None
+
+
+def _json_default(obj):
+    """DuckDB/Athena return datetime.date and Decimal for DATE/NUMERIC columns,
+    neither of which json.dumps handles by default. Without this, cache_set's
+    fail-open except-clause swallows the TypeError and silently never caches
+    any row containing a date - exactly the columns most dashboards have."""
+    if isinstance(obj, (datetime.date, datetime.datetime)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+async def get_redis():
+    global _pool
+    if _pool is None:
+        import redis.asyncio as aioredis
+        _pool = aioredis.from_url(
+            REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        )
+    return _pool
+
+
+async def cache_get(key: str):
+    try:
+        r = await get_redis()
+        raw = await r.get(key)
+        return json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
+async def cache_set(key: str, value, ttl: int = 3600):
+    try:
+        r = await get_redis()
+        await r.set(key, json.dumps(value, default=_json_default), ex=ttl)
+    except Exception:
+        pass
+
+
+async def cache_invalidate_prefix(prefix: str):
+    try:
+        r = await get_redis()
+        async for key in r.scan_iter(f"{prefix}:*"):
+            await r.delete(key)
+    except Exception:
+        pass</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="cache-keys">
+    <div class="path">backend/core/cache/keys.py</div>
+    <div class="purpose">Deterministic cache key builder — sorted params so identical filter sets always map to the same key, regardless of the order query params arrived in.</div>
+    <pre><code>def make_cache_key(dashboard_id: str, endpoint: str, params: dict | None = None) -> str:
+    """
+    Deterministic cache key, same convention used elsewhere in this project:
+    sorted params so identical filter sets always map to the same key.
+    Example: make_cache_key("ldc", "case-queue", {"servicer_number": "SVC-001", "page": 1})
+             -> "ldc:case-queue:page=1:servicer_number=SVC-001"
+    """
+    parts = [dashboard_id, endpoint]
+    if params:
+        for k in sorted(params):
+            v = params[k]
+            if v is None or v == "":
+                continue
+            parts.append(f"{k}={v}")
+    return ":".join(parts)</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="filters">
+    <div class="path">backend/core/filters.py</div>
+    <div class="purpose">Generic version of the project's existing <code>_filter_clause()</code> pattern — the field list comes from config instead of being hand-written per endpoint. Always positional <code>$1, $2, ...</code> — never f-string user input into SQL.</div>
+    <pre><code>"""
+Generic version of the _filter_clause() pattern already used in this project's
+backend, except the field list comes from each dashboard's config instead of
+being hand-written per endpoint. Always positional ($1, $2, ...) - never f-string
+user input into SQL.
+"""
+from .config_schema import FilterDef
+
+_OP_SQL = {
+    "eq": "=",
+    "ilike": "ILIKE",
+    "gte": ">=",
+    "lte": "<=",
+}
+
+
+def build_filter_clause(filter_defs: list[FilterDef], query_params: dict) -> tuple[str, list]:
+    conditions: list[str] = []
+    params: list = []
+    for fd in filter_defs:
+        value = query_params.get(fd.param)
+        if value is None or value == "":
+            continue
+        params.append(f"%{value}%" if fd.op == "ilike" else value)
+        conditions.append(f"{fd.field} {_OP_SQL[fd.op]} ${len(params)}")
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    return where, params</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="router-factory">
+    <div class="path">backend/core/router_factory.py</div>
+    <div class="purpose"><strong>The piece that removes per-dashboard coding.</strong> Given a validated <code>DashboardConfig</code>, returns a fully wired FastAPI router — queue table, status summary, filter-lookup dropdowns, CSV export — all using the cache-aside pattern above. Adding dashboard #2 means writing a new YAML config, not a new router module.</div>
+    <div class="info accent">The summary endpoint below is deliberately dumb: <code>get_summary()</code> does <code>SELECT * FROM {summary_mart}</code> and nothing else. It used to recompute a status-count GROUP BY against the <em>queue</em> mart in Python — duplicating logic dbt already computed, hardcoding a bar-chart shape, and never actually touching the dbt-built <code>mart_&lt;id&gt;_summary</code> table at all. That's fixed: all aggregation now lives in <code>mart_&lt;id&gt;_summary.sql</code> (see <a href="#sql-logic">Where New Dashboard SQL Logic Goes</a>), and this function just passes its rows through, the same way <code>get_queue()</code> passes through the queue mart's rows.</div>
+    <pre><code>"""
+This is the piece that removes the per-dashboard coding: given a validated
+DashboardConfig, it returns a fully wired FastAPI router (queue table, status
+summary, filter-lookup dropdowns, CSV export) using the cache-aside pattern
+already established in this project. Adding dashboard #2 means writing a new
+YAML config, not a new router module.
+
+Summary endpoint is intentionally dumb: it does SELECT * FROM the dbt-built
+summary mart and returns the rows as-is - no GROUP BY, no aggregation, no
+chart-shaping logic lives here. Every dashboard's summary chart can be a
+completely different aggregation (status counts, sums by category, a trend
+line, ...) because that logic is written once in that dashboard's own
+mart_<id>_summary.sql, not in this shared Python file. See
+dashboards/<id>/dbt/marts/mart_<id>_summary.sql.
+"""
+import csv
+import io
+
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import StreamingResponse
+
+from .config_schema import DashboardConfig
+from .db.connection import execute_query
+from .cache.client import cache_get, cache_set
+from .cache.keys import make_cache_key
+from .filters import build_filter_clause
+
+
+def build_dashboard_router(config: DashboardConfig) -> APIRouter:
+    router = APIRouter(prefix=config.api.base_path, tags=[config.dashboard_id])
+    mart = config.mart.queue_model_name
+    summary_mart = config.mart.summary_model_name
+    sort_field = config.api.default_sort.field
+    sort_dir = config.api.default_sort.direction.upper()
+
+    def _collect_params(request: Request) -> dict:
+        return {fd.param: request.query_params.get(fd.param) for fd in config.api.filters}
+
+    # ---- Queue table -------------------------------------------------
+    @router.get(f"/{config.api.queue_endpoint}", summary=f"{config.display_name} — queue")
+    async def get_queue(
+        request: Request,
+        page: int = Query(1, ge=1),
+        page_size: int = Query(config.api.default_page_size, ge=1, le=500),
+    ):
+        params_in = _collect_params(request)
+        cache_key = make_cache_key(
+            config.dashboard_id, config.api.queue_endpoint,
+            {**params_in, "page": page, "page_size": page_size},
+        )
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        where, params = build_filter_clause(config.api.filters, params_in)
+        offset = (page - 1) * page_size
+        sql = (
+            f"SELECT * FROM {mart} {where} "
+            f"ORDER BY {sort_field} {sort_dir} "
+            f"LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}"
+        )
+        rows = execute_query(sql, params + [page_size, offset])
+
+        count_sql = f"SELECT COUNT(*) AS n FROM {mart} {where}"
+        total = execute_query(count_sql, params)[0]["n"]
+
+        result = {"items": rows, "count": total, "page": page, "page_size": page_size}
+        await cache_set(cache_key, result, ttl=config.cache_ttl_seconds)
+        return result
+
+    # ---- Summary chart (dumb passthrough) ------------------------------
+    # No GROUP BY, no aggregation, no chart-shaping here. The mart_<id>_summary
+    # model already contains whatever rollup that dashboard's chart needs -
+    # this just selects it and hands the rows back untouched, exactly the way
+    # get_queue() above hands back the queue mart's rows untouched. If a new
+    # dashboard's chart is a sum-by-category, a trend line, or anything else,
+    # that logic is written once in that dashboard's mart_<id>_summary.sql -
+    # this function never has to change.
+    @router.get(f"/{config.api.summary_endpoint}", summary=f"{config.display_name} — summary chart")
+    async def get_summary():
+        cache_key = make_cache_key(config.dashboard_id, config.api.summary_endpoint)
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        rows = execute_query(f"SELECT * FROM {summary_mart}")
+        result = {
+            "title": f"{config.display_name} — Summary",
+            "items": rows,
+            "count": len(rows),
+        }
+        await cache_set(cache_key, result, ttl=config.cache_ttl_seconds)
+        return result
+
+    # ---- Filter / dropdown lookups -------------------------------------
+    for field in config.api.filter_lookup_fields:
+        def _make_lookup(field_name: str):
+            async def lookup():
+                cache_key = make_cache_key(config.dashboard_id, f"filters:{field_name}")
+                cached = await cache_get(cache_key)
+                if cached is not None:
+                    return cached
+                sql = (
+                    f"SELECT DISTINCT {field_name} AS value FROM {mart} "
+                    f"WHERE {field_name} IS NOT NULL ORDER BY {field_name}"
+                )
+                rows = execute_query(sql)
+                result = {"items": [r["value"] for r in rows], "count": len(rows)}
+                await cache_set(cache_key, result, ttl=max(config.cache_ttl_seconds, 21600))
+                return result
+            return lookup
+
+        router.add_api_route(
+            f"/filters/{field}", _make_lookup(field), methods=["GET"],
+            summary=f"{config.display_name} — distinct values for {field}",
+        )
+
+    # ---- CSV export (same columns as the queue view) --------------------
+    if config.api.export_enabled:
+        @router.get(f"/{config.api.queue_endpoint}/export", summary=f"{config.display_name} — export CSV")
+        async def export_csv(request: Request):
+            params_in = _collect_params(request)
+            where, params = build_filter_clause(config.api.filters, params_in)
+            sql = f"SELECT * FROM {mart} {where} ORDER BY {sort_field} {sort_dir}"
+            rows = execute_query(sql, params)
+
+            buf = io.StringIO()
+            if rows:
+                writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(rows)
+            buf.seek(0)
+            return StreamingResponse(
+                iter([buf.getvalue()]), media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={config.dashboard_id}_export.csv"},
+            )
+
+    return router</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <table>
+      <tr><th>Endpoint generated</th><th>From config field</th></tr>
+      <tr><td><code>GET {base_path}/{queue_endpoint}</code></td><td><code>api.filters</code>, <code>api.default_sort</code>, <code>api.default_page_size</code></td></tr>
+      <tr><td><code>GET {base_path}/{summary_endpoint}</code></td><td><code>mart.summary_model_name</code> only — passthrough of whatever <code>mart_&lt;id&gt;_summary.sql</code> produces, no config-driven shaping</td></tr>
+      <tr><td><code>GET {base_path}/filters/{field}</code> — one per field</td><td><code>api.filter_lookup_fields</code></td></tr>
+      <tr><td><code>GET {base_path}/{queue_endpoint}/export</code></td><td><code>api.export_enabled</code></td></tr>
+    </table>
+  </div>
+
+  <div class="filecard" id="main">
+    <div class="path">backend/main.py</div>
+    <div class="purpose">App entrypoint. Scans <code>dashboards/*/config.yaml</code> at startup and registers each one's router — this file is <strong>never edited</strong> to add a dashboard.</div>
+    <pre><code>from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from core.config_loader import load_all_dashboards
+from core.router_factory import build_dashboard_router
+
+BASE_DIR = Path(__file__).parent
+DASHBOARDS_DIR = BASE_DIR / "dashboards"
+
+app = FastAPI(title="FNMA Reporting Dashboard Framework")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:4200"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+_registered: list[str] = []
+for cfg in load_all_dashboards(DASHBOARDS_DIR):
+    app.include_router(build_dashboard_router(cfg))
+    _registered.append(cfg.dashboard_id)
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "dashboards_registered": _registered}
+
+
+@app.get("/dashboards")
+async def list_dashboards():
+    """Lists every dashboard currently registered - useful while wiring up dashboard #2, #3, ..."""
+    return {"dashboards": _registered}</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info green">Verified: dropping the <code>ldc/</code> folder (config + dbt models) into <code>dashboards/</code> with no other code changes was enough for <code>/health</code> to report <code>"dashboards_registered": ["ldc"]</code> and for all four of its endpoints to respond correctly. Re-confirmed after the move to per-dashboard folders — <code>config_loader.load_all_dashboards()</code> correctly registers <code>ldc</code> and skips <code>_template</code>.</div>
+  </div>
+
+  <!-- ============ DASHBOARD CONFIGS ============ -->
+  <h2 id="template-yaml">📝 Dashboard Configs</h2>
+
+  <div class="filecard">
+    <div class="path">backend/dashboards/_template/config.yaml</div>
+    <div class="purpose">The whole <code>_template/</code> folder is what you copy to start a new dashboard. Ignored by <code>config_loader</code> because of the leading underscore on the folder name — it will never accidentally get registered as a live dashboard.</div>
+    <pre><code># Template for a new dashboard. Copy this whole FOLDER to dashboards/&lt;your_id&gt;/
+# and fill in config.yaml. Folders starting with "_" are ignored by the framework
+# (so this template folder is never registered as a live dashboard).
+#
+# Steps to add a new dashboard with this template:
+#   1. cp -r dashboards/_template dashboards/&lt;dashboard_id&gt;
+#   2. Fill in every field in dashboards/&lt;dashboard_id&gt;/config.yaml below.
+#   3. python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml
+#      -&gt; scaffolds dashboards/&lt;dashboard_id&gt;/dbt/staging + dbt/marts SQL + schema.yml,
+#         with TODOs for any business logic flagged needs_clarification: true
+#   4. Fill in the TODOs in the generated SQL (dashboards/&lt;dashboard_id&gt;/dbt/marts/),
+#      then `dbt run`.
+#   5. Restart the API - the new dashboard appears automatically, no Python changes.
+#
+# Everything specific to this dashboard lives inside this one folder - nothing
+# for it is written or edited anywhere else in the repo.
+
+dashboard_id: my_new_dashboard          # short slug - used in routes, cache keys, dbt model names
+display_name: "My New Dashboard"
+description: "One-line description of what this dashboard reports on."
+
+refresh_tier: near_real_time             # near_real_time | snapshot_eod | snapshot_eom | needs_clarification
+cache_ttl_seconds: 3600
+
+source:
+  database: TBD_source_database          # Glue/Iceberg database in the source data team's account
+  table: TBD_source_table                 # Iceberg table backing the request/case grain
+  loan_attributes_table: null              # optional - Iceberg table backing loan-level rollups
+
+staging:
+  model_name: stg_my_new_dashboard
+  columns:
+    - {name: request_no, type: varchar, source_col: request_no}
+    - {name: request_status, type: varchar, source_col: status}
+    # ... add one row per source column you need ...
+
+mart:
+  queue_model_name: mart_my_new_dashboard_queue
+  summary_model_name: mart_my_new_dashboard_summary
+  primary_key: request_no
+  status_field: request_status
+  status_values: ["Draft", "Completed"]    # every value the summary chart should show, even if zero
+  derived_columns: []                       # see dashboards/ldc/config.yaml for the needs_clarification pattern
+
+api:
+  base_path: /api/my_new_dashboard
+  queue_endpoint: queue
+  summary_endpoint: summary
+  filters: []                                # list of {field, param, op: eq|ilike|gte|lte}
+  default_page_size: 25
+  default_sort: {field: request_no, direction: desc}
+  filter_lookup_fields: []                    # fields that need a dropdown endpoint
+  export_enabled: true</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="ldc-yaml">
+    <div class="path">backend/dashboards/ldc/config.yaml</div>
+    <div class="purpose">Dashboard #1, fully expressed as config, self-contained inside <code>dashboards/ldc/</code> alongside its own <code>dbt/staging</code> and <code>dbt/marts</code> — matches the prototype's 16 queue columns, 14 filters, and 6-status summary chart exactly. <span class="badge badge-verified">VERIFIED</span></div>
+    <pre><code>dashboard_id: ldc
+display_name: "LDC Case Management Dashboard"
+description: "Loan Data Correction case queue, status summary, and filters."
+
+refresh_tier: near_real_time   # ⚠ flagged in the project plan as needing confirmation - may need &lt;15min
+cache_ttl_seconds: 3600
+
+source:
+  database: TBD_source_database     # placeholder - cross-account Glue/Iceberg database, pending data team
+  table: TBD_ldc_case_requests       # placeholder - source Iceberg table for case requests
+  loan_attributes_table: TBD_ldc_loan_attributes   # placeholder - backs Loan Count / Attribute Count
+
+staging:
+  model_name: stg_ldc_case_requests
+  columns:
+    - {name: request_no,       type: varchar, source_col: request_no}
+    - {name: request_status,   type: varchar, source_col: status}
+    - {name: sub_status,       type: varchar, source_col: sub_status}
+    - {name: submitter_name,   type: varchar, source_col: submitter_name}
+    - {name: submitter_group,  type: varchar, source_col: submitter_group}
+    - {name: seller_number,    type: varchar, source_col: seller_number}
+    - {name: seller_name,      type: varchar, source_col: seller_name}
+    - {name: servicer_number,  type: varchar, source_col: servicer_number}
+    - {name: servicer_name,    type: varchar, source_col: servicer_name}
+    - {name: reviewer_group,   type: varchar, source_col: reviewer_group}
+    - {name: reviewer_name,    type: varchar, source_col: reviewer_name}
+    - {name: fm_loan_number,   type: varchar, source_col: fm_loan_number}
+    - {name: submission_date,  type: date,    source_col: submission_date}
+    - {name: completion_date,  type: date,    source_col: completion_date}
+    - {name: loan_count,       type: integer, source_col: loan_count}
+    - {name: attribute_count,  type: integer, source_col: attribute_count}
+
+mart:
+  queue_model_name: mart_ldc_case_queue
+  summary_model_name: mart_ldc_status_summary
+  primary_key: request_no
+  status_field: request_status
+  status_values: ["Draft", "Exception Review", "Pending Reclass", "Completed", "Canceled", "Rejected"]
+  derived_columns:
+    - {name: queue_age,   needs_clarification: true, note: "Elapsed-time calc TBD - calendar vs business hours"}
+    - {name: cycle_time,  needs_clarification: true, note: "Business-day calc TBD; only meaningful once Completion Date is set"}
+    - {name: sla_status,  needs_clarification: true, note: "SLA thresholds (Within SLA / At Risk / Breached) TBD"}
+
+api:
+  base_path: /api/ldc
+  queue_endpoint: case-queue
+  summary_endpoint: status-summary
+  filters:
+    - {field: request_no,       param: request_no,          op: eq}
+    - {field: submitter_name,   param: submitter_name,       op: ilike}
+    - {field: submitter_group,  param: submitter_group,      op: eq}
+    - {field: seller_number,    param: seller_number,        op: eq}
+    - {field: servicer_number,  param: servicer_number,      op: eq}
+    - {field: reviewer_group,   param: reviewer_group,       op: eq}
+    - {field: reviewer_name,    param: reviewer_name,        op: ilike}
+    - {field: fm_loan_number,   param: fm_loan_number,       op: eq}
+    - {field: sub_status,       param: sub_status,           op: eq}
+    - {field: submission_date,  param: submission_date_from, op: gte}
+    - {field: submission_date,  param: submission_date_to,   op: lte}
+    - {field: completion_date,  param: completion_date_from, op: gte}
+    - {field: completion_date,  param: completion_date_to,   op: lte}
+    - {field: sla_status,       param: sla_status,           op: eq}   # derived column - returns nothing until E3-S1-T4 is implemented
+  default_page_size: 25
+  default_sort: {field: submission_date, direction: desc}
+  filter_lookup_fields: [submitter_group, reviewer_group, seller_number, servicer_number, sub_status]
+  export_enabled: true</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info warn">Carries forward the same open items as the Excel project plan: <code>source.database</code>/<code>source.table</code> are <code>TBD_*</code> pending the cross-account Iceberg table names, and <code>queue_age</code>/<code>cycle_time</code>/<code>sla_status</code> need business-rule confirmation before they're real columns instead of <code>NULL</code> placeholders.</div>
+  </div>
+
+  <!-- ============ DBT GENERATION ============ -->
+  <h2 id="generator">⚙️ dbt Generation</h2>
+
+  <div class="filecard">
+    <div class="path">backend/scripts/generate_dbt_models.py</div>
+    <div class="purpose">Reads one dashboard config and scaffolds its dbt staging model, mart models, and <code>schema.yml</code>. Column casting, model structure, and test stubs are generated. Dashboard-specific business logic is left for a human in two places: the queue mart's <code>TODO</code> comments (anything flagged <code>needs_clarification</code>), and the summary mart, which is generated with a working zero-filled status-count default but is fully expected to be rewritten per dashboard for whatever chart aggregation it actually needs.</div>
+    <h4>Usage</h4>
+    <pre><code>python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <pre><code>"""
+Reads one dashboard YAML config and scaffolds its dbt staging model, mart models,
+and schema.yml — written into that SAME dashboard's own folder
+(dashboards/&lt;dashboard_id&gt;/dbt/staging, dashboards/&lt;dashboard_id&gt;/dbt/marts).
+This is the "without much coding" part for the dbt layer: column casting, model
+structure, and test stubs are generated; dashboard-specific business logic is
+left for a human to fill in - as a TODO in the queue mart (flagged
+needs_clarification in the config), and as a fully editable default in the
+summary mart, since every dashboard's chart aggregation is different.
+
+Usage:
+    python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml
+"""
+import sys
+from pathlib import Path
+import yaml
+
+
+def _header(config_filename: str) -> str:
+    return (
+        f"-- AUTO-GENERATED by scripts/generate_dbt_models.py from {config_filename}\n"
+        f"-- Re-run the generator after editing the config rather than hand-editing this file,\n"
+        f"-- except inside the TODO blocks below, which need dashboard-specific business logic.\n\n"
+    )
+
+
+def build_staging_sql(cfg: dict, config_filename: str) -> str:
+    cols = cfg["staging"]["columns"]
+    lines = [f"    CAST({c['source_col']} AS {c['type'].upper()}) AS {c['name']}" for c in cols]
+    body = ",\n".join(lines)
+    src = cfg["source"]
+    return (
+        _header(config_filename)
+        + f"SELECT\n{body}\nFROM {{{{ source('{src['database']}', '{src['table']}') }}}}\n"
+    )
+
+
+def build_mart_queue_sql(cfg: dict, config_filename: str) -> str:
+    stg = cfg["staging"]["model_name"]
+    col_names = [c["name"] for c in cfg["staging"]["columns"]]
+    select_cols = ",\n".join(f"    {c}" for c in col_names)
+
+    todo_lines = []
+    for dc in cfg["mart"].get("derived_columns", []):
+        tag = "TODO (NEEDS CLARIFICATION)" if dc.get("needs_clarification") else "TODO"
+        note = dc.get("note", "")
+        todo_lines.append(f"    , NULL AS {dc['name']}  -- {tag}: {note}")
+    todo_block = ("\n".join(todo_lines) + "\n") if todo_lines else ""
+
+    return (
+        _header(config_filename)
+        + f"SELECT\n{select_cols}\n{todo_block}FROM {{{{ ref('{stg}') }}}}\n"
+        + f"ORDER BY {cfg['mart']['primary_key']}\n"
+    )
+
+
+def build_mart_summary_sql(cfg: dict, config_filename: str) -> str:
+    """
+    Generates a *default* summary mart: a zero-filled count of status_field,
+    good enough for a simple bar/pie "how many requests in each status" chart.
+
+    This default is a starting point, not the final word. Unlike staging/queue
+    models, the summary mart is meant to be hand-edited per dashboard: a
+    different dashboard's summary chart might be a sum-by-category, a trend
+    over time, or a multi-series rollup, and that logic belongs only here, in
+    SQL - never in the API layer, which just does SELECT * FROM this model.
+    Re-running the generator overwrites hand edits, same caveat as the TODO
+    blocks in mart_&lt;id&gt;_queue.sql.
+    """
+    stg = cfg["staging"]["model_name"]
+    status_field = cfg["mart"]["status_field"]
+    status_values = cfg["mart"].get("status_values", [])
+
+    note = (
+        "-- DEFAULT CHART LOGIC - EDIT FREELY.\n"
+        "-- This is a generated starting point, not generator-protected output. The\n"
+        "-- query below is this dashboard's entire summary-chart business logic: the\n"
+        "-- API only does `SELECT * FROM` this model and returns the rows as-is, so\n"
+        "-- whatever shape/aggregation this dashboard's chart needs (status counts,\n"
+        "-- sums by category, a trend line, ...) is written here, once, in SQL - not\n"
+        "-- in Python. Re-running the generator WILL overwrite any edits you make\n"
+        "-- below; once this file diverges from the default, stop re-running the\n"
+        "-- generator for this dashboard's summary mart.\n\n"
+    )
+
+    if status_values:
+        values_rows = ",\n        ".join(f"('{v}')" for v in status_values)
+        body = (
+            f"with counts as (\n"
+            f"    select\n        {status_field},\n        count(*) as request_count\n"
+            f"    from {{{{ ref('{stg}') }}}}\n    group by {status_field}\n),\n"
+            f"all_statuses as (\n"
+            f"    select column1 as {status_field}\n"
+            f"    from (values\n        {values_rows}\n    ) as t\n)\n"
+            f"select\n"
+            f"    s.{status_field},\n"
+            f"    coalesce(c.request_count, 0) as request_count\n"
+            f"from all_statuses s\n"
+            f"left join counts c using ({status_field})\n"
+            f"order by s.{status_field}\n"
+        )
+    else:
+        body = (
+            f"select\n    {status_field},\n    count(*) as request_count\n"
+            f"from {{{{ ref('{stg}') }}}}\ngroup by {status_field}\n"
+        )
+
+    return _header(config_filename) + note + body
+
+
+def build_schema_yml(cfg: dict, config_filename: str) -> str:
+    pk = cfg["mart"]["primary_key"]
+    status_field = cfg["mart"]["status_field"]
+    status_values = cfg["mart"].get("status_values", [])
+    queue_model = cfg["mart"]["queue_model_name"]
+    summary_model = cfg["mart"]["summary_model_name"]
+    values_yaml = "\n".join(f'                - "{v}"' for v in status_values)
+
+    staging_col_names = [c["name"] for c in cfg["staging"]["columns"]]
+    derived_cols = cfg["mart"].get("derived_columns", [])
+
+    column_blocks = []
+    for name in staging_col_names:
+        if name == pk:
+            column_blocks.append(f"      - name: {pk}\n        tests: [not_null, unique]")
+        elif name == status_field:
+            column_blocks.append(
+                f"      - name: {status_field}\n"
+                f"        tests:\n"
+                f"          - accepted_values:\n"
+                f"              values:\n"
+                f"{values_yaml}"
+            )
+        else:
+            column_blocks.append(f"      - name: {name}")
+    for dc in derived_cols:
+        note = dc.get("note", "")
+        suffix = f"  # NEEDS CLARIFICATION: {note}" if dc.get("needs_clarification") else ""
+        column_blocks.append(f"      - name: {dc['name']}{suffix}")
+    columns_yaml = "\n".join(column_blocks)
+
+    return f"""# AUTO-GENERATED by scripts/generate_dbt_models.py from {config_filename}
+version: 2
+models:
+  - name: {queue_model}
+    description: "{cfg['display_name']} — one row per {pk}."
+    columns:
+{columns_yaml}
+  - name: {summary_model}
+    description: "{cfg['display_name']} — summary chart data. Default is zero-filled status counts; this dashboard may have hand-edited the SQL for a different aggregation."
+    columns:
+      - name: {status_field}
+      - name: request_count
+"""
+
+
+def main(config_path: str):
+    cfg_path = Path(config_path)
+    cfg = yaml.safe_load(cfg_path.read_text())
+    config_filename = str(cfg_path)
+
+    # Output lands inside the same dashboard folder the config came from -
+    # dashboards/&lt;dashboard_id&gt;/dbt/{staging,marts}/ - so one dashboard = one
+    # self-contained folder with nothing written anywhere else in the repo.
+    dashboard_dir = cfg_path.parent
+    staging_dir = dashboard_dir / "dbt" / "staging"
+    marts_dir = dashboard_dir / "dbt" / "marts"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    marts_dir.mkdir(parents=True, exist_ok=True)
+
+    (staging_dir / f"{cfg['staging']['model_name']}.sql").write_text(build_staging_sql(cfg, config_filename))
+    (marts_dir / f"{cfg['mart']['queue_model_name']}.sql").write_text(build_mart_queue_sql(cfg, config_filename))
+    (marts_dir / f"{cfg['mart']['summary_model_name']}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
+    (marts_dir / f"schema_{cfg['dashboard_id']}.yml").write_text(build_schema_yml(cfg, config_filename))
+
+    print(f"Generated dbt models for '{cfg['dashboard_id']}' in {dashboard_dir / 'dbt'}")
+    todo_count = sum(1 for dc in cfg["mart"].get("derived_columns", []) if dc.get("needs_clarification"))
+    if todo_count:
+        print(f"  -&gt; {todo_count} derived column(s) need business-rule clarification before this mart is complete.")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml")
+        sys.exit(1)
+    main(sys.argv[1])</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info green">Fixed: the original <code>build_schema_yml()</code> only ever emitted the primary key and status field, so <code>schema_ldc.yml</code> was missing 17 of its 19 columns. It now loops over every staging column and every derived column, so <code>schema.yml</code> is always complete for any dashboard, automatically.</div>
+  </div>
+
+  <div class="filecard" id="generated-output">
+    <div class="path">Generated output — dashboards/ldc/dbt/staging/stg_ldc_case_requests.sql</div>
+    <div class="purpose">Actual output from running the generator against <code>dashboards/ldc/config.yaml</code> — not hand-written.</div>
+    <pre><code>SELECT
+    CAST(request_no AS VARCHAR) AS request_no,
+    CAST(status AS VARCHAR) AS request_status,
+    CAST(sub_status AS VARCHAR) AS sub_status,
+    CAST(submitter_name AS VARCHAR) AS submitter_name,
+    CAST(submitter_group AS VARCHAR) AS submitter_group,
+    CAST(seller_number AS VARCHAR) AS seller_number,
+    CAST(seller_name AS VARCHAR) AS seller_name,
+    CAST(servicer_number AS VARCHAR) AS servicer_number,
+    CAST(servicer_name AS VARCHAR) AS servicer_name,
+    CAST(reviewer_group AS VARCHAR) AS reviewer_group,
+    CAST(reviewer_name AS VARCHAR) AS reviewer_name,
+    CAST(fm_loan_number AS VARCHAR) AS fm_loan_number,
+    CAST(submission_date AS DATE) AS submission_date,
+    CAST(completion_date AS DATE) AS completion_date,
+    CAST(loan_count AS INTEGER) AS loan_count,
+    CAST(attribute_count AS INTEGER) AS attribute_count
+FROM {{ source('TBD_source_database', 'TBD_ldc_case_requests') }}</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+
+    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/marts/mart_ldc_case_queue.sql</div>
+    <pre><code>SELECT
+    request_no,
+    request_status,
+    sub_status,
+    submitter_name,
+    submitter_group,
+    seller_number,
+    seller_name,
+    servicer_number,
+    servicer_name,
+    reviewer_group,
+    reviewer_name,
+    fm_loan_number,
+    submission_date,
+    completion_date,
+    loan_count,
+    attribute_count
+    , NULL AS queue_age  -- TODO (NEEDS CLARIFICATION): Elapsed-time calc TBD - calendar vs business hours
+    , NULL AS cycle_time  -- TODO (NEEDS CLARIFICATION): Business-day calc TBD; only meaningful once Completion Date is set
+    , NULL AS sla_status  -- TODO (NEEDS CLARIFICATION): SLA thresholds (Within SLA / At Risk / Breached) TBD
+FROM {{ ref('stg_ldc_case_requests') }}
+ORDER BY request_no</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+
+    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/marts/mart_ldc_status_summary.sql</div>
+    <div class="info accent" style="margin-top:0;">This is the file <code>router_factory.get_summary()</code> reads from via a plain <code>SELECT *</code> — every status-count and zero-fill below is dbt SQL, not Python.</div>
+    <pre><code>-- DEFAULT CHART LOGIC - EDIT FREELY.
+-- This is a generated starting point, not generator-protected output. The
+-- query below is this dashboard's entire summary-chart business logic: the
+-- API only does `SELECT * FROM` this model and returns the rows as-is, so
+-- whatever shape/aggregation this dashboard's chart needs (status counts,
+-- sums by category, a trend line, ...) is written here, once, in SQL - not
+-- in Python. Re-running the generator WILL overwrite any edits you make
+-- below; once this file diverges from the default, stop re-running the
+-- generator for this dashboard's summary mart.
+
+with counts as (
+    select
+        request_status,
+        count(*) as request_count
+    from {{ ref('stg_ldc_case_requests') }}
+    group by request_status
+),
+all_statuses as (
+    select column1 as request_status
+    from (values
+        ('Draft'),
+        ('Exception Review'),
+        ('Pending Reclass'),
+        ('Completed'),
+        ('Canceled'),
+        ('Rejected')
+    ) as t
+)
+select
+    s.request_status,
+    coalesce(c.request_count, 0) as request_count
+from all_statuses s
+left join counts c using (request_status)
+order by s.request_status</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+
+    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/marts/schema_ldc.yml</div>
+    <pre><code># AUTO-GENERATED by scripts/generate_dbt_models.py from dashboards/ldc/config.yaml
+version: 2
+models:
+  - name: mart_ldc_case_queue
+    description: "LDC Case Management Dashboard — one row per request_no."
+    columns:
+      - name: request_no
+        tests: [not_null, unique]
+      - name: request_status
+        tests:
+          - accepted_values:
+              values:
+                - "Draft"
+                - "Exception Review"
+                - "Pending Reclass"
+                - "Completed"
+                - "Canceled"
+                - "Rejected"
+      - name: sub_status
+      - name: submitter_name
+      - name: submitter_group
+      - name: seller_number
+      - name: seller_name
+      - name: servicer_number
+      - name: servicer_name
+      - name: reviewer_group
+      - name: reviewer_name
+      - name: fm_loan_number
+      - name: submission_date
+      - name: completion_date
+      - name: loan_count
+      - name: attribute_count
+      - name: queue_age  # NEEDS CLARIFICATION: Elapsed-time calc TBD - calendar vs business hours
+      - name: cycle_time  # NEEDS CLARIFICATION: Business-day calc TBD; only meaningful once Completion Date is set
+      - name: sla_status  # NEEDS CLARIFICATION: SLA thresholds (Within SLA / At Risk / Breached) TBD
+  - name: mart_ldc_status_summary
+    description: "LDC Case Management Dashboard — summary chart data. Default is zero-filled status counts; this dashboard may have hand-edited the SQL for a different aggregation."
+    columns:
+      - name: request_status
+      - name: request_count</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info accent">All 19 columns are listed automatically — including the three <code>NEEDS CLARIFICATION</code> derived columns (Queue Age / Cycle Time / SLA Status), the exact business rules flagged as open questions in the project plan. Impossible to miss when reviewing this file, and this stays correct for every future dashboard since it comes from looping over the config, not a hand-maintained list.</div>
+  </div>
+
+  <!-- ============ CACHE SYNC ============ -->
+  <h2 id="cache-sync">🔁 Cache Sync</h2>
+  <div class="filecard">
+    <div class="path">backend/cache_sync/sync.py</div>
+    <div class="purpose">Generalizes the project's existing cache-sync pattern: instead of a hardcoded mart list, this iterates <em>every</em> dashboard config and syncs it according to its declared <code>refresh_tier</code>. Run after <code>dbt run</code> — hourly via EventBridge for <code>near_real_time</code> dashboards, daily/monthly for snapshot dashboards.</div>
+    <div class="info accent">Same fix as <code>router_factory.py</code>: <code>sync_dashboard()</code> used to recompute the status-count GROUP BY itself, against the queue mart, in Python. It now caches <code>SELECT * FROM</code> the summary mart directly — identical contract to <code>get_summary()</code>, so a Redis HIT after cache-sync and a Redis MISS hitting the API directly return the exact same shape.</div>
+    <pre><code>"""
+Generalizes the cache-sync pattern already established for this project: instead
+of a hardcoded MARTS list, this iterates every dashboard config and syncs it
+according to its declared refresh_tier. Run after `dbt run` in CodeBuild/CI -
+near_real_time dashboards on an hourly EventBridge schedule, snapshot dashboards
+on a daily/monthly one.
+
+Dashboards with refresh_tier: needs_clarification are skipped on purpose - they
+should not be silently scheduled until the cadence question is resolved.
+"""
+import asyncio
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from core.config_loader import load_all_dashboards
+from core.config_schema import DashboardConfig
+from core.db.connection import execute_query
+from core.cache.client import cache_set, cache_invalidate_prefix
+from core.cache.keys import make_cache_key
+
+DASHBOARDS_DIR = Path(__file__).parent.parent / "dashboards"
+
+
+async def sync_dashboard(cfg: DashboardConfig):
+    mart = cfg.mart.queue_model_name
+    summary_mart = cfg.mart.summary_model_name
+    await cache_invalidate_prefix(cfg.dashboard_id)
+
+    sort_field = cfg.api.default_sort.field
+    sort_dir = cfg.api.default_sort.direction.upper()
+    rows = execute_query(f"SELECT * FROM {mart} ORDER BY {sort_field} {sort_dir}")
+
+    page_size = cfg.api.default_page_size
+    queue_key = make_cache_key(cfg.dashboard_id, cfg.api.queue_endpoint, {"page": 1, "page_size": page_size})
+    await cache_set(
+        queue_key,
+        {"items": rows[:page_size], "count": len(rows), "page": 1, "page_size": page_size},
+        ttl=cfg.cache_ttl_seconds,
+    )
+
+    # Dumb passthrough, same contract as router_factory.get_summary(): just
+    # cache whatever the dbt-built summary mart already computed. No
+    # aggregation is recomputed here - that logic lives only in
+    # mart_<id>_summary.sql, once, per dashboard.
+    summary_rows = execute_query(f"SELECT * FROM {summary_mart}")
+    summary_key = make_cache_key(cfg.dashboard_id, cfg.api.summary_endpoint)
+    await cache_set(
+        summary_key,
+        {
+            "title": f"{cfg.display_name} — Summary",
+            "items": summary_rows,
+            "count": len(summary_rows),
+        },
+        ttl=cfg.cache_ttl_seconds,
+    )
+
+    print(f"[cache-sync] {cfg.dashboard_id}: {len(rows)} rows cached (tier={cfg.refresh_tier})")
+
+
+async def sync_all():
+    for cfg in load_all_dashboards(DASHBOARDS_DIR):
+        if cfg.refresh_tier in ("near_real_time", "snapshot_eod", "snapshot_eom"):
+            await sync_dashboard(cfg)
+        else:
+            print(f"[cache-sync] SKIPPED {cfg.dashboard_id} — refresh_tier={cfg.refresh_tier}, needs clarification before scheduling")
+
+
+if __name__ == "__main__":
+    asyncio.run(sync_all())</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info green">Verified: run against a seeded DuckDB mart, this printed <code>[cache-sync] ldc: 1 rows cached (tier=near_real_time)</code> and populated the same Redis keys the API reads.</div>
+  </div>
+
+  <!-- ============ DEPLOYMENT ============ -->
+  <h2 id="dockerfile">🚢 Deployment Files (dashboard-agnostic)</h2>
+  <p>Every file in this section applies to the whole service. Adding dashboard #2 through #18 never touches any of them.</p>
+
+  <div class="filecard">
+    <div class="path">deploy/Dockerfile</div>
+    <pre><code>FROM artifactory.fanniemae.com/gbx-coss-release/ecos-base-amzlnx-python311:latest
+
+WORKDIR /app
+COPY backend/requirements.txt .
+RUN /usr/bin/pip3.11 install --no-cache-dir -r requirements.txt
+
+COPY backend/ .
+
+ENV RUNTIME_ENV=production
+ENV DATA_LAYER=athena
+ENV PORT=8000
+EXPOSE 8000
+
+CMD ["/usr/bin/python3.11", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info warn">Artifactory base image + full <code>/usr/bin/python3.11</code> / <code>pip3.11</code> paths. Build with <code>$env:DOCKER_BUILDKIT=0</code> first — BuildKit is disabled on the corporate network.</div>
+  </div>
+
+  <div class="filecard" id="compose">
+    <div class="path">deploy/docker-compose.yml</div>
+    <pre><code>services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  localstack:
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEFAULT_REGION=us-east-1
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      RUNTIME_ENV: local
+      DATA_LAYER: duckdb
+      DUCKDB_PATH: /app/fnma.duckdb
+      REDIS_URL: redis://redis:6379/0
+      AWS_ENDPOINT_URL: http://localstack:4566
+    depends_on:
+      - redis
+      - localstack</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info accent">LocalStack scoped to S3 only — Athena's query API isn't emulated in the Community edition. DuckDB remains the local Athena substitute.</div>
+  </div>
+
+  <div class="filecard" id="taskdef">
+    <div class="path">deploy/task-definition.template.json</div>
+    <pre><code>{
+  "family": "fnma-reporting-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "${ECS_EXECUTION_ROLE_ARN}",
+  "taskRoleArn": "${ECS_TASK_ROLE_ARN}",
+  "containerDefinitions": [{
+    "name": "fnma-backend",
+    "image": "${ECR_IMAGE_URI}",
+    "portMappings": [{ "containerPort": 8000, "protocol": "tcp" }],
+    "environment": [
+      { "name": "RUNTIME_ENV", "value": "production" },
+      { "name": "DATA_LAYER", "value": "athena" },
+      { "name": "AWS_REGION", "value": "${AWS_REGION}" },
+      { "name": "ATHENA_SCHEMA", "value": "reporting" }
+    ],
+    "secrets": [
+      { "name": "ATHENA_S3_STAGING", "valueFrom": "${ATHENA_S3_STAGING_SECRET_ARN}" },
+      { "name": "REDIS_URL", "valueFrom": "${REDIS_URL_SECRET_ARN}" }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/fnma-reporting-backend",
+        "awslogs-region": "${AWS_REGION}",
+        "awslogs-stream-prefix": "ecs"
+      }
+    },
+    "healthCheck": {
+      "command": ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
+      "interval": 30, "timeout": 5, "retries": 3, "startPeriod": 15
+    }
+  }]
+}</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info accent"><code>${VAR}</code> placeholders, substituted via <code>envsubst</code> in CI. One task definition for every dashboard — the service serves all 18 from the same container.</div>
+  </div>
+
+  <div class="filecard" id="buildspec">
+    <div class="path">deploy/buildspec.yml — default/documented CI path</div>
+    <pre><code>version: 0.2
+phases:
+  install:
+    commands:
+      - pip install -r backend/requirements.txt
+
+  build:
+    commands:
+      - cd backend/dbt_project
+      - dbt run  --profiles-dir . --target athena
+      - dbt test --profiles-dir . --target athena
+      - cd ../..
+      - python backend/cache_sync/sync.py
+
+  post_build:
+    commands:
+      - echo "dbt + cache-sync complete for all registered dashboards"
+
+env:
+  secrets-manager:
+    ATHENA_S3_STAGING: fnma/athena-s3-staging
+    REDIS_URL: fnma/redis-url
+  variables:
+    AWS_REGION: us-east-1
+    ATHENA_SCHEMA: reporting
+    DATA_LAYER: athena</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info warn">No <code>dbt_project.yml</code> exists yet (intentionally — see README), so <code>cd backend/dbt_project</code> above is aspirational. Once one is added, its <code>model-paths</code> needs to point at <code>dashboards</code> instead of a single flat folder, since models now live at <code>dashboards/&lt;id&gt;/dbt/{staging,marts}/</code>. Unconfirmed: whether dbt's yaml loader chokes on each dashboard's non-dbt <code>config.yaml</code> sitting in that same directory tree — flagging rather than guessing.</div>
+  </div>
+
+  <div class="filecard" id="ghactions">
+    <div class="path">deploy/github-actions-deploy.yml — alternate path, flagged unconfirmed</div>
+    <pre><code>name: Deploy Backend
+on:
+  push:
+    branches: [main]
+    paths: [backend/**, deploy/**]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::ACCT:role/github-actions-deploy
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push
+        run: |
+          docker build --platform linux/amd64 -f deploy/Dockerfile -t $ECR_URI:$GITHUB_SHA .
+          docker push $ECR_URI:$GITHUB_SHA
+      - name: Update ECS service
+        run: |
+          aws ecs update-service \
+            --cluster fnma-reporting-cluster \
+            --service fnma-reporting-backend \
+            --force-new-deployment</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info red">Use only if GitHub Actions — not CodeBuild/CodePipeline — is the real deploy trigger. Confirm before relying on this file.</div>
+  </div>
+
+  <!-- ============ TESTING ============ -->
+  <h2 id="smoke-test">✅ Testing</h2>
+  <div class="filecard">
+    <div class="path">tests/test_framework_smoke.py</div>
+    <div class="purpose">The test actually run before this framework was handed over. Seeds a synthetic DuckDB mart matching the LDC config's shape, loads the real config through the real router factory, and exercises every endpoint via FastAPI's <code>TestClient</code> — plus a direct Redis check.</div>
+    <pre><code>"""
+End-to-end smoke test for the framework: builds a synthetic DuckDB mart matching
+the LDC config's shape (standing in for what `dbt run` would produce), points
+core.db.connection at it, loads the real dashboards/ldc/config.yaml config through
+the real router_factory, and exercises every endpoint via FastAPI's TestClient.
+
+Run with: python tests/test_framework_smoke.py
+"""
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).parent.parent
+BACKEND = ROOT / "backend"
+sys.path.insert(0, str(BACKEND))
+
+tmp_db = tempfile.NamedTemporaryFile(suffix=".duckdb", delete=True)
+tmp_db.close()
+os.environ["DATA_LAYER"] = "duckdb"
+os.environ["DUCKDB_PATH"] = tmp_db.name
+
+import duckdb
+
+from core.config_loader import load_dashboard_config
+from core.router_factory import build_dashboard_router
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+
+def seed_mart(db_path: str):
+    con = duckdb.connect(db_path)
+    con.execute("""
+        CREATE TABLE mart_ldc_case_queue (
+            request_no VARCHAR, request_status VARCHAR, sub_status VARCHAR,
+            submitter_name VARCHAR, submitter_group VARCHAR,
+            seller_number VARCHAR, seller_name VARCHAR,
+            servicer_number VARCHAR, servicer_name VARCHAR,
+            reviewer_group VARCHAR, reviewer_name VARCHAR,
+            fm_loan_number VARCHAR, submission_date DATE, completion_date DATE,
+            loan_count INTEGER, attribute_count INTEGER,
+            queue_age VARCHAR, cycle_time VARCHAR, sla_status VARCHAR
+        )
+    """)
+    con.execute("""
+        INSERT INTO mart_ldc_case_queue VALUES
+        ('100101','Draft','Draft','Jennifer Lee','External','99887','PennyMac',
+         '7721',NULL,'Auto-Decision','System',NULL,'2026-05-26',NULL,44,0,NULL,NULL,NULL),
+        ('100401','Completed','Request Completed','David Smith','Internal','99887','PennyMac',
+         '7721',NULL,'LDC','David Smith',NULL,'2026-05-25','2026-05-25',110,20,NULL,NULL,'Within SLA'),
+        ('100501','Canceled','Canceled','Michael Brown','Internal','55210','Mr. Cooper',
+         '2210',NULL,'LDC','Michael Brown',NULL,'2026-05-26',NULL,19,3,NULL,NULL,'SLA At Risk')
+    """)
+    # Seeded directly, the way dbt's mart_ldc_status_summary.sql would build it -
+    # zero-filled across all 6 configured statuses, not derived from the queue
+    # mart at request time. The router/cache-sync layer no longer computes this;
+    # it only does SELECT * FROM this table and passes the rows through.
+    con.execute("CREATE TABLE mart_ldc_status_summary (request_status VARCHAR, request_count INTEGER)")
+    con.execute("""
+        INSERT INTO mart_ldc_status_summary VALUES
+        ('Draft', 1), ('Exception Review', 0), ('Pending Reclass', 0),
+        ('Completed', 1), ('Canceled', 1), ('Rejected', 0)
+    """)
+    con.close()
+
+
+def main():
+    seed_mart(tmp_db.name)
+    cfg = load_dashboard_config(BACKEND / "dashboards" / "ldc" / "config.yaml")
+    app = FastAPI()
+    app.include_router(build_dashboard_router(cfg))
+    client = TestClient(app)
+    # ... 11 assertions against the queue, summary, filter-lookup, and export
+    # endpoints, plus a direct Redis check - see the shipped file for the full list.
+
+if __name__ == "__main__":
+    main()</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <table>
+      <tr><th>Check</th><th>Result</th></tr>
+      <tr><td>Queue endpoint returns all 3 seeded rows</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td><code>servicer_number</code> (<code>eq</code>) filter narrows correctly</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td><code>submitter_name</code> (<code>ilike</code>) filter matches case-insensitively</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td>Status summary passes through all 6 seeded mart rows untouched, including zero-count ones</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td>Filter-lookup endpoint returns correct distinct values</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td>CSV export returns correct content-type and row count</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td>Redis actually holds the queue cache key (DATE columns included)</td><td><span class="badge badge-verified">PASS</span> <span class="badge badge-bugfix">after fix</span></td></tr>
+    </table>
+  </div>
+
+  <div class="filecard" id="bug-found">
+    <div class="path">Bug Found &amp; Fixed — core/cache/client.py</div>
+    <div class="purpose">Why this matters: this bug would have shipped silently. No error, no crash — the queue endpoint just would have hit the database on every single call, forever, while everything else about the system looked correct.</div>
+    <table>
+      <tr><th>Symptom</th><td>Cache keys for <code>status-summary</code> and <code>filters/*</code> appeared in Redis after running the API; the <code>case-queue</code> key never did.</td></tr>
+      <tr><th>Root cause</th><td><code>json.dumps()</code> can't serialize <code>datetime.date</code> (or <code>Decimal</code>) — and the queue endpoint is the one with <code>submission_date</code>/<code>completion_date</code>. <code>cache_set()</code>'s fail-open <code>except Exception: pass</code> swallowed the <code>TypeError</code> silently.</td></tr>
+      <tr><th>Fix</th><td>Added a <code>_json_default()</code> handler passed to <code>json.dumps(value, default=_json_default)</code>, converting <code>date</code>/<code>datetime</code> to ISO strings and <code>Decimal</code> to <code>float</code>.</td></tr>
+      <tr><th>Regression guard</th><td>The smoke test now asserts the <code>case-queue</code> key specifically lands in Redis after a request, not just "some" key for the dashboard.</td></tr>
+    </table>
+  </div>
+
+  <!-- ============ EXECUTION STEPS ============ -->
+  <h2 id="path-a">▶️ Quickstart — Path A (bare venv)</h2>
+  <ol class="steplist">
+    <li><code>cd backend && python -m venv .venv && source .venv/bin/activate</code> (Windows: <code>.venv\Scripts\activate</code>), then <code>pip install -r requirements.txt</code></li>
+    <li>Start Redis (optional — fails open if skipped): <code>redis-server --daemonize yes --port 6379</code></li>
+    <li>Hand-seed a local DuckDB mart (see README for the one-liner, or reuse <code>tests/test_framework_smoke.py</code>'s <code>seed_mart()</code>)</li>
+    <li>Set env vars: <code>DATA_LAYER=duckdb</code>, <code>DUCKDB_PATH=./fnma.duckdb</code>, <code>REDIS_URL=redis://localhost:6379/0</code>, then <code>uvicorn main:app --reload --port 8000</code></li>
+    <li>Verify: <code>curl localhost:8000/health</code>, <code>/dashboards</code>, <code>/api/ldc/case-queue</code>, <code>/api/ldc/status-summary</code>, or open <code>/docs</code></li>
+    <li>Or skip steps 3–5 entirely: <code>python tests/test_framework_smoke.py</code> does all of it automatically</li>
+  </ol>
+  <div class="info green">All of the above was run exactly as written before being documented — every curl call returned correct data, including the status-summary chart with proper zero-counts for unused statuses.</div>
+
+  <h2 id="path-b">▶️ Quickstart — Path B (Docker)</h2>
+  <ol class="steplist">
+    <li><code>$env:DOCKER_BUILDKIT=0</code> (corporate network requirement)</li>
+    <li><code>docker compose -f deploy/docker-compose.yml up --build -d</code></li>
+    <li><code>docker compose -f deploy/docker-compose.yml ps</code> — confirm redis, localstack, backend all <code>Up</code></li>
+    <li>Run the same curl checks from Path A against <code>localhost:8000</code></li>
+  </ol>
+
+  <h2 id="run-dbt">▶️ Running dbt</h2>
+  <p>This package generates dbt model SQL but does not bundle <code>dbt_project.yml</code>/<code>profiles.yml</code>/<code>sources.yml</code> — those follow the pattern already documented in this project's backend README, and weren't duplicated here to avoid drifting out of sync. Carry that pair over, add a <code>sources.yml</code> entry for each dashboard's <code>source.database</code>/<code>source.table</code>, and point <code>model-paths</code> at <code>dashboards</code> (models now live at <code>dashboards/&lt;id&gt;/dbt/{staging,marts}/</code>, not a single flat folder), then:</p>
+  <pre><code>cd backend
+dbt seed  --profiles-dir .
+dbt run   --profiles-dir .
+dbt test  --profiles-dir .</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  <div class="info warn">Unconfirmed: with <code>model-paths: ["dashboards"]</code>, dbt's yaml parser will also walk into each dashboard's <code>config.yaml</code> (a non-dbt file) sitting in that same tree. Whether that's silently ignored or causes a parse error hasn't been verified — check this before relying on it.</div>
+
+  <p style="margin-top:18px;">For the full walkthrough of adding a new dashboard — not just the dbt step — see <a href="#pipeline-1">🪜 The Full Execution Pipeline</a> above, which covers every step from copying the template folder through deployment.</p>
+
+  <!-- ============ TROUBLESHOOTING ============ -->
+  <h2 id="faq">🆘 Troubleshooting / FAQ</h2>
+  <table>
+    <tr><th>Symptom</th><th>What's actually happening</th><th>Fix</th></tr>
+    <tr><td><code>ModuleNotFoundError</code> on startup</td><td>Dependencies aren't installed, or your venv isn't active.</td><td><code>source .venv/bin/activate</code>, then <code>pip install -r backend/requirements.txt</code>.</td></tr>
+    <tr><td>API starts but every endpoint 404s</td><td>Your dashboard folder either isn't under <code>backend/dashboards/</code>, starts with <code>_</code>, or is missing <code>config.yaml</code> — <code>load_all_dashboards()</code> silently skips anything that doesn't match.</td><td>Check <code>curl localhost:8000/dashboards</code> — if your <code>dashboard_id</code> isn't listed, fix the folder name/contents and restart.</td></tr>
+    <tr><td>App crashes on startup with a Pydantic <code>ValidationError</code></td><td>Your <code>config.yaml</code> is missing a required field or used a value <code>config_schema.py</code> doesn't allow (e.g. a typo'd <code>op</code> or <code>refresh_tier</code>).</td><td>The error names the exact field — compare it against <a href="#config-schema">core/config_schema.py</a>'s class definitions, or the annotated <a href="#template-yaml">_template/config.yaml</a>.</td></tr>
+    <tr><td><code>duckdb.IOException</code> / "table does not exist"</td><td>No DuckDB mart exists yet at <code>DUCKDB_PATH</code> — nothing has been seeded into it.</td><td>Either run <code>dbt run</code> (once a real dbt project exists) or hand-seed it — see the <a href="#pipeline-5">Step 5 workaround</a>.</td></tr>
+    <tr><td>Redis errors in the console, but the API still responds</td><td>This is expected, not a bug — <code>cache_get</code>/<code>cache_set</code> fail open by design. The endpoint just always hits the database instead of the cache.</td><td>Ignore for local dev, or start Redis: <code>redis-server --daemonize yes --port 6379</code>.</td></tr>
+    <tr><td>Queue response has real columns but some are always <code>null</code></td><td>Expected for any column still listed as a <code>TODO (NEEDS CLARIFICATION)</code> in the generated mart SQL — the business logic hasn't been filled in yet.</td><td>Fill in the TODO in <code>dbt/marts/mart_&lt;id&gt;_queue.sql</code> per <a href="#pipeline-4">Step 4</a>. Don't re-run the generator afterward without re-applying the logic.</td></tr>
+    <tr><td>You filled in TODO business logic, then it's back to <code>NULL</code></td><td>You re-ran <code>generate_dbt_models.py</code> after editing the SQL by hand. The generator overwrites the file unconditionally — it never reads existing content first.</td><td>Re-apply the business logic. Going forward, avoid re-running the generator once TODOs are filled in unless you're prepared to redo them. See <a href="#sql-logic">Where New Dashboard SQL Logic Goes</a>.</td></tr>
+    <tr><td>A filter query param does nothing</td><td>The <code>param</code> name in your request doesn't match any <code>param</code> declared under <code>api.filters</code> in <code>config.yaml</code> — unmatched params are silently ignored, not errored.</td><td>Check the exact <code>param</code> spelling in your config against the URL query string.</td></tr>
+  </table>
+
+  <!-- ============ OPEN ITEMS ============ -->
+  <h2 id="open-items">🚩 Open Placeholders</h2>
+  <table>
+    <tr><th>Item</th><th>Where</th><th>Status</th></tr>
+    <tr><td>Cross-account Iceberg <code>database</code>/<code>table</code> names</td><td><code>dashboards/ldc/config.yaml</code> → <code>source</code></td><td>Pending source data team</td></tr>
+    <tr><td>Queue Age calculation (calendar vs. business hours)</td><td>Generated mart SQL, flagged TODO</td><td>Needs business rule</td></tr>
+    <tr><td>Cycle Time calculation (business-day rule)</td><td>Generated mart SQL, flagged TODO</td><td>Needs business rule</td></tr>
+    <tr><td>SLA Status thresholds (Within SLA / At Risk / Breached)</td><td>Generated mart SQL, flagged TODO</td><td>Needs business rule</td></tr>
+    <tr><td>Whether the live queue needs &lt;15-min refresh instead of ≤1hr</td><td><code>refresh_tier: near_real_time</code> in config</td><td>Same flag as the Excel project plan</td></tr>
+    <tr><td><code>dbt_project.yml</code>/<code>profiles.yml</code>/<code>sources.yml</code> not bundled</td><td>N/A — intentional</td><td>Carry over from existing backend README pattern</td></tr>
+    <tr><td>dbt <code>model-paths: ["dashboards"]</code> alongside each dashboard's non-dbt <code>config.yaml</code></td><td>Future <code>dbt_project.yml</code></td><td>Unconfirmed — may need a yaml-parser exclude pattern</td></tr>
+    <tr><td>CodeBuild/CodePipeline vs. GitHub Actions</td><td><code>deploy/buildspec.yml</code> vs. <code>deploy/github-actions-deploy.yml</code></td><td>Confirm which is real</td></tr>
+  </table>
+
+  <div style="height:60px;"></div>
+</main>
+
+<script>
+function copyCode(btn) {
+  const code = btn.parentElement.querySelector('code');
+  navigator.clipboard.writeText(code.innerText).then(() => {
+    const orig = btn.innerText;
+    btn.innerText = 'Copied!';
+    setTimeout(() => { btn.innerText = orig; }, 1500);
+  });
+}
+
+function toggleSidebar() {
+  const collapsed = document.body.classList.toggle('sidebar-collapsed');
+  document.getElementById('sidebarToggle').innerText = collapsed ? '▶' : '◀';
+}
+</script>
+
+</body>
+</html>

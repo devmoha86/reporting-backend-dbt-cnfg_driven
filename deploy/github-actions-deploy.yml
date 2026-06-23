@@ -1,0 +1,30 @@
+# Path B from the deployment guide - flagged as unconfirmed. Use this only if
+# GitHub Actions, not AWS CodeBuild/CodePipeline, is the real deploy trigger for
+# this MSR. Confirm before relying on this file.
+
+name: Deploy Backend
+on:
+  push:
+    branches: [main]
+    paths: [backend/**, deploy/**]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::ACCT:role/github-actions-deploy
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push
+        run: |
+          docker build --platform linux/amd64 -f deploy/Dockerfile -t $ECR_URI:$GITHUB_SHA .
+          docker push $ECR_URI:$GITHUB_SHA
+      - name: Update ECS service
+        run: |
+          aws ecs update-service \
+            --cluster fnma-reporting-cluster \
+            --service fnma-reporting-backend \
+            --force-new-deployment

@@ -1,0 +1,17 @@
+fastapi==0.110.*
+uvicorn==0.29.*
+pydantic==2.*
+pyyaml==6.*
+duckdb==1.2.*
+redis==5.0.*
+hiredis==3.0.*
+
+# Phase 2 only - swap in when DATA_LAYER=athena (remove duckdb above per the
+# existing 3-file swap pattern: requirements.txt / profiles.yml / db/connection.py)
+# pyathena==3.*
+# boto3==1.*
+
+# dbt (run separately from the API process - see dbt_project/)
+# dbt-core==1.*
+# dbt-duckdb==1.*        # local
+# dbt-athena-community==1.*   # production

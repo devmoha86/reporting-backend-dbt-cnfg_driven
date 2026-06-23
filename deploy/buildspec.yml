@@ -1,0 +1,30 @@
+# Default/documented CI path (Path A from the deployment guide). Runs dbt for
+# every dashboard's models in one pass, then the generic cache-sync job - neither
+# step is dashboard-specific, so adding dashboard #2 never touches this file.
+
+version: 0.2
+phases:
+  install:
+    commands:
+      - pip install -r backend/requirements.txt
+
+  build:
+    commands:
+      - cd backend/dbt_project
+      - dbt run  --profiles-dir . --target athena
+      - dbt test --profiles-dir . --target athena
+      - cd ../..
+      - python backend/cache_sync/sync.py
+
+  post_build:
+    commands:
+      - echo "dbt + cache-sync complete for all registered dashboards"
+
+env:
+  secrets-manager:
+    ATHENA_S3_STAGING: fnma/athena-s3-staging
+    REDIS_URL: fnma/redis-url
+  variables:
+    AWS_REGION: us-east-1
+    ATHENA_SCHEMA: reporting
+    DATA_LAYER: athena

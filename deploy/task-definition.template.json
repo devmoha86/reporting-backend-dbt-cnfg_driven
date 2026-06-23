@@ -1,0 +1,36 @@
+{
+  "family": "fnma-reporting-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "${ECS_EXECUTION_ROLE_ARN}",
+  "taskRoleArn": "${ECS_TASK_ROLE_ARN}",
+  "containerDefinitions": [{
+    "name": "fnma-backend",
+    "image": "${ECR_IMAGE_URI}",
+    "portMappings": [{ "containerPort": 8000, "protocol": "tcp" }],
+    "environment": [
+      { "name": "RUNTIME_ENV", "value": "production" },
+      { "name": "DATA_LAYER", "value": "athena" },
+      { "name": "AWS_REGION", "value": "${AWS_REGION}" },
+      { "name": "ATHENA_SCHEMA", "value": "reporting" }
+    ],
+    "secrets": [
+      { "name": "ATHENA_S3_STAGING", "valueFrom": "${ATHENA_S3_STAGING_SECRET_ARN}" },
+      { "name": "REDIS_URL", "valueFrom": "${REDIS_URL_SECRET_ARN}" }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/fnma-reporting-backend",
+        "awslogs-region": "${AWS_REGION}",
+        "awslogs-stream-prefix": "ecs"
+      }
+    },
+    "healthCheck": {
+      "command": ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
+      "interval": 30, "timeout": 5, "retries": 3, "startPeriod": 15
+    }
+  }]
+}

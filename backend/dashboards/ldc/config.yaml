@@ -1,0 +1,66 @@
+dashboard_id: ldc
+display_name: "LDC Case Management Dashboard"
+description: "Loan Data Correction case queue, status summary, and filters."
+
+refresh_tier: near_real_time   # ⚠ flagged in the project plan as needing confirmation - may need <15min
+cache_ttl_seconds: 3600
+
+source:
+  database: TBD_source_database     # placeholder - cross-account Glue/Iceberg database, pending data team
+  table: TBD_ldc_case_requests       # placeholder - source Iceberg table for case requests
+  loan_attributes_table: TBD_ldc_loan_attributes   # placeholder - backs Loan Count / Attribute Count
+
+staging:
+  model_name: stg_ldc_case_requests
+  columns:
+    - {name: request_no,       type: varchar, source_col: request_no}
+    - {name: request_status,   type: varchar, source_col: status}
+    - {name: sub_status,       type: varchar, source_col: sub_status}
+    - {name: submitter_name,   type: varchar, source_col: submitter_name}
+    - {name: submitter_group,  type: varchar, source_col: submitter_group}
+    - {name: seller_number,    type: varchar, source_col: seller_number}
+    - {name: seller_name,      type: varchar, source_col: seller_name}
+    - {name: servicer_number,  type: varchar, source_col: servicer_number}
+    - {name: servicer_name,    type: varchar, source_col: servicer_name}
+    - {name: reviewer_group,   type: varchar, source_col: reviewer_group}
+    - {name: reviewer_name,    type: varchar, source_col: reviewer_name}
+    - {name: fm_loan_number,   type: varchar, source_col: fm_loan_number}
+    - {name: submission_date,  type: date,    source_col: submission_date}
+    - {name: completion_date,  type: date,    source_col: completion_date}
+    - {name: loan_count,       type: integer, source_col: loan_count}
+    - {name: attribute_count,  type: integer, source_col: attribute_count}
+
+mart:
+  queue_model_name: mart_ldc_case_queue
+  summary_model_name: mart_ldc_status_summary
+  primary_key: request_no
+  status_field: request_status
+  status_values: ["Draft", "Exception Review", "Pending Reclass", "Completed", "Canceled", "Rejected"]
+  derived_columns:
+    - {name: queue_age,   needs_clarification: true, note: "Elapsed-time calc TBD - calendar vs business hours"}
+    - {name: cycle_time,  needs_clarification: true, note: "Business-day calc TBD; only meaningful once Completion Date is set"}
+    - {name: sla_status,  needs_clarification: true, note: "SLA thresholds (Within SLA / At Risk / Breached) TBD"}
+
+api:
+  base_path: /api/ldc
+  queue_endpoint: case-queue
+  summary_endpoint: status-summary
+  filters:
+    - {field: request_no,       param: request_no,          op: eq}
+    - {field: submitter_name,   param: submitter_name,       op: ilike}
+    - {field: submitter_group,  param: submitter_group,      op: eq}
+    - {field: seller_number,    param: seller_number,        op: eq}
+    - {field: servicer_number,  param: servicer_number,      op: eq}
+    - {field: reviewer_group,   param: reviewer_group,       op: eq}
+    - {field: reviewer_name,    param: reviewer_name,        op: ilike}
+    - {field: fm_loan_number,   param: fm_loan_number,       op: eq}
+    - {field: sub_status,       param: sub_status,           op: eq}
+    - {field: submission_date,  param: submission_date_from, op: gte}
+    - {field: submission_date,  param: submission_date_to,   op: lte}
+    - {field: completion_date,  param: completion_date_from, op: gte}
+    - {field: completion_date,  param: completion_date_to,   op: lte}
+    - {field: sla_status,       param: sla_status,           op: eq}   # derived column - returns nothing until E3-S1-T4 is implemented
+  default_page_size: 25
+  default_sort: {field: submission_date, direction: desc}
+  filter_lookup_fields: [submitter_group, reviewer_group, seller_number, servicer_number, sub_status]
+  export_enabled: true
