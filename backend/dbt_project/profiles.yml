@@ -1,0 +1,36 @@
+# Local dbt profile - committed because it has no secrets in it (everything
+# environment-specific comes from env_var(), matching the DATA_LAYER swap
+# pattern already used by core/db/connection.py and deploy/task-definition.template.json).
+# In CI/prod, a real ~/.dbt/profiles.yml or DBT_PROFILES_DIR could override this,
+# but pointing --profiles-dir at this file (as deploy/buildspec.yml already does
+# via `cd backend/dbt_project`) works as-is since every value is env-driven.
+#
+# Two targets, matching the two DATA_LAYER values the API itself supports:
+#   - duckdb (default): local dev, reads/writes the same DuckDB file the API
+#     points DUCKDB_PATH at, so `dbt run` output and the API's queries hit the
+#     same data without any extra wiring.
+#   - athena: CI/prod, matches deploy/buildspec.yml's `dbt run --target athena`.
+#     Requires the dbt-athena-community adapter (see backend/requirements.txt)
+#     and real AWS credentials in the environment - nothing here assumes a
+#     specific auth method (env vars, instance role, etc.), dbt-athena-community
+#     uses boto3's default credential chain.
+fnma_reporting:
+  target: duckdb
+  outputs:
+    duckdb:
+      type: duckdb
+      # Relative to backend/dbt_project/ (where this file lives, per buildspec.yml's
+      # `cd backend/dbt_project`) - "../fnma.duckdb" lands at backend/fnma.duckdb,
+      # matching the API's default DUCKDB_PATH=./fnma.duckdb when uvicorn is run
+      # from inside backend/. Override DUCKDB_PATH to an absolute path if running
+      # dbt and the API from different working directories to avoid ambiguity.
+      path: "{{ env_var('DUCKDB_PATH', '../fnma.duckdb') }}"
+      threads: 4
+
+    athena:
+      type: athena
+      s3_staging_dir: "{{ env_var('ATHENA_S3_STAGING') }}"
+      region_name: "{{ env_var('AWS_REGION', 'us-east-1') }}"
+      schema: "{{ env_var('ATHENA_SCHEMA', 'reporting') }}"
+      database: awsdatacatalog
+      threads: 4

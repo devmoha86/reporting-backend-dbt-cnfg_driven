@@ -1,17 +1,32 @@
 """
 Reads one dashboard's config.yaml and scaffolds its dbt staging model, mart models,
-and schema.yml — written into that same dashboard's folder, under dbt/staging/ and
-dbt/marts/. This is the "without much coding" part for the dbt layer: column
-casting, model structure, and test stubs are generated; dashboard-specific
-business logic is left for a human to fill in - as a TODO in the queue mart
-(flagged needs_clarification in the config), and as a fully editable default
-in the summary mart, since every dashboard's chart aggregation is different.
+sources.yml, a local-dev seed, and schema.yml — written into that same dashboard's
+folder, under dbt/staging/, dbt/marts/, and dbt/seeds/. This is the "without much
+coding" part for the dbt layer: column casting, model structure, source wiring,
+and test stubs are generated; dashboard-specific business logic is left for a
+human to fill in - as a TODO in the queue mart (flagged needs_clarification in the
+config), as a fully editable default in the summary mart (since every dashboard's
+chart aggregation is different), and as actual sample rows in the seed CSV (the
+generator can't invent business data, so it only writes the header row).
 
 Every dashboard is fully self-contained under backend/dashboards/<dashboard_id>/:
-    dashboards/<dashboard_id>/config.yaml          <- you write this
-    dashboards/<dashboard_id>/dbt/staging/*.sql     <- this script writes these
-    dashboards/<dashboard_id>/dbt/marts/*.sql       <- this script writes these
-    dashboards/<dashboard_id>/dbt/marts/schema_<dashboard_id>.yml   <- and this
+    dashboards/<dashboard_id>/config.yaml                            <- you write this
+    dashboards/<dashboard_id>/dbt/staging/*.sql                       <- this script writes these
+    dashboards/<dashboard_id>/dbt/staging/sources_<dashboard_id>.yml   <- and this
+    dashboards/<dashboard_id>/dbt/marts/*.sql                          <- this script writes these
+    dashboards/<dashboard_id>/dbt/marts/schema_<dashboard_id>.yml      <- and this
+    dashboards/<dashboard_id>/dbt/seeds/seed_<dashboard_id>_raw.csv    <- header only; fill in sample rows by hand
+
+The generated sources.yml resolves the same {{ source(...) }} reference used by
+the staging model to two different physical tables depending on dbt target: the
+duckdb target (local dev) points at the seed CSV above, so `dbt seed && dbt run`
+works today with zero real source data; the athena target (CI/prod) points at
+this dashboard's real source.database/source.table from config.yaml, which may
+still be a TBD_* placeholder pending the source data team. See
+backend/dbt_project/ for the project-level dbt_project.yml and profiles.yml that
+tie every dashboard's generated models together (model-paths/seed-paths both
+point at ../dashboards, so nothing dbt-related needs to live outside each
+dashboard's own folder except that one shared project file pair).
 
 Usage:
     python scripts/generate_dbt_models.py dashboards/<dashboard_id>/config.yaml
@@ -95,8 +110,8 @@ def build_mart_summary_sql(cfg: dict, config_filename: str) -> str:
             f"    select\n        {status_field},\n        count(*) as request_count\n"
             f"    from {{{{ ref('{stg}') }}}}\n    group by {status_field}\n),\n"
             f"all_statuses as (\n"
-            f"    select column1 as {status_field}\n"
-            f"    from (values\n        {values_rows}\n    ) as t\n)\n"
+            f"    select {status_field}\n"
+            f"    from (values\n        {values_rows}\n    ) as t({status_field})\n)\n"
             f"select\n"
             f"    s.{status_field},\n"
             f"    coalesce(c.request_count, 0) as request_count\n"
@@ -111,6 +126,68 @@ def build_mart_summary_sql(cfg: dict, config_filename: str) -> str:
         )
 
     return _header(config_filename) + note + body
+
+
+def build_sources_yml(cfg: dict, config_filename: str) -> str:
+    """
+    Generates this dashboard's sources.yml: defines the source the staging model
+    already references via {{ source(database, table) }}, resolved to two
+    different physical tables depending on dbt target -
+
+      - duckdb (local dev): the seed CSV this same generator scaffolds at
+        dbt/seeds/seed_<dashboard_id>_raw.csv, loaded by `dbt seed` into a table
+        of the same name. This makes `dbt seed && dbt run` work today, with zero
+        real source data.
+      - athena (CI/prod): the real source.database/source.table from this
+        dashboard's config.yaml - may still be a TBD_* placeholder pending the
+        source data team, same convention as everywhere else in this dashboard's
+        generated files.
+
+    Re-running the generator overwrites this file unconditionally, same caveat
+    as schema_<dashboard_id>.yml - if the real source names land, update
+    config.yaml first, then re-run the generator rather than hand-editing this.
+    """
+    src = cfg["source"]
+    dash_id = cfg["dashboard_id"]
+    seed_identifier = f"seed_{dash_id}_raw"
+    schema_jinja = "{{ 'main' if target.name == 'duckdb' else '%s' }}" % src["database"]
+    identifier_jinja = "{{ '%s' if target.name == 'duckdb' else '%s' }}" % (seed_identifier, src["table"])
+
+    return (
+        f"# AUTO-GENERATED by scripts/generate_dbt_models.py from {config_filename}\n"
+        f"# Resolves {{{{ source('{src['database']}', '{src['table']}') }}}} (used by the staging\n"
+        f"# model) to two different tables depending on dbt target:\n"
+        f"#   - duckdb (local dev) -> dbt/seeds/{seed_identifier}.csv, loaded via `dbt seed`\n"
+        f"#   - athena (CI/prod)   -> the real source.database/source.table in config.yaml,\n"
+        f"#                          confirm with the source data team before relying on it\n"
+        f"version: 2\n"
+        f"sources:\n"
+        f"  - name: {src['database']}\n"
+        f"    schema: \"{schema_jinja}\"\n"
+        f"    tables:\n"
+        f"      - name: {src['table']}\n"
+        f"        identifier: \"{identifier_jinja}\"\n"
+    )
+
+
+def build_seed_csv(cfg: dict, config_filename: str) -> str:
+    """
+    Generates this dashboard's local-dev seed: a header-only CSV using the same
+    raw source_col names the staging model casts from (not the renamed staging
+    column names). `dbt seed` loads this into a real table named
+    seed_<dashboard_id>_raw, which sources.yml points the duckdb target at - the
+    thing that actually lets `dbt seed && dbt run` work locally with zero real
+    source data.
+
+    The generator only writes the header row; it can't invent business data.
+    Fill in sample rows by hand after generating. Re-running the generator WILL
+    overwrite this file unconditionally (no read-back, no merge), the same
+    caveat as every other generated file here - back up hand-added rows first,
+    or stop re-running the generator for this dashboard's seed once it has real
+    sample data in it.
+    """
+    header = ",".join(c["source_col"] for c in cfg["staging"]["columns"])
+    return header + "\n"
 
 
 def build_schema_yml(cfg: dict, config_filename: str) -> str:
@@ -165,23 +242,36 @@ def main(config_path: str):
     config_filename = str(cfg_path)
 
     # Output lands inside the same dashboard folder the config came from -
-    # dashboards/<dashboard_id>/dbt/{staging,marts}/ - so one dashboard = one
-    # self-contained folder with nothing written anywhere else in the repo.
+    # dashboards/<dashboard_id>/dbt/{staging,marts,seeds}/ - so one dashboard = one
+    # self-contained folder with nothing written anywhere else in the repo, except
+    # the shared dbt_project.yml/profiles.yml pair under backend/dbt_project/.
     dashboard_dir = cfg_path.parent
     staging_dir = dashboard_dir / "dbt" / "staging"
     marts_dir = dashboard_dir / "dbt" / "marts"
+    seeds_dir = dashboard_dir / "dbt" / "seeds"
     staging_dir.mkdir(parents=True, exist_ok=True)
     marts_dir.mkdir(parents=True, exist_ok=True)
+    seeds_dir.mkdir(parents=True, exist_ok=True)
+
+    dash_id = cfg["dashboard_id"]
+    seed_path = seeds_dir / f"seed_{dash_id}_raw.csv"
+    seed_existed = seed_path.exists()
 
     (staging_dir / f"{cfg['staging']['model_name']}.sql").write_text(build_staging_sql(cfg, config_filename))
+    (staging_dir / f"sources_{dash_id}.yml").write_text(build_sources_yml(cfg, config_filename))
     (marts_dir / f"{cfg['mart']['queue_model_name']}.sql").write_text(build_mart_queue_sql(cfg, config_filename))
     (marts_dir / f"{cfg['mart']['summary_model_name']}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
-    (marts_dir / f"schema_{cfg['dashboard_id']}.yml").write_text(build_schema_yml(cfg, config_filename))
+    (marts_dir / f"schema_{dash_id}.yml").write_text(build_schema_yml(cfg, config_filename))
+    seed_path.write_text(build_seed_csv(cfg, config_filename))
 
-    print(f"Generated dbt models for '{cfg['dashboard_id']}' in {dashboard_dir / 'dbt'}")
+    print(f"Generated dbt models for '{dash_id}' in {dashboard_dir / 'dbt'}")
     todo_count = sum(1 for dc in cfg["mart"].get("derived_columns", []) if dc.get("needs_clarification"))
     if todo_count:
         print(f"  -> {todo_count} derived column(s) need business-rule clarification before this mart is complete.")
+    if seed_existed:
+        print(f"  -> {seed_path} already existed and was OVERWRITTEN (header only) - restore any hand-added sample rows.")
+    else:
+        print(f"  -> {seed_path} is header-only - add sample rows by hand before `dbt seed` will produce usable local data.")
 
 
 if __name__ == "__main__":

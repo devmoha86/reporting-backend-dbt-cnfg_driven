@@ -11,7 +11,12 @@ hiredis==3.0.*
 # pyathena==3.*
 # boto3==1.*
 
-# dbt (run separately from the API process - see dbt_project/)
-# dbt-core==1.*
-# dbt-duckdb==1.*        # local
-# dbt-athena-community==1.*   # production
+# dbt (run separately from the API process - see backend/dbt_project/). Unlike
+# the pyathena/boto3 swap above, these are NOT mutually exclusive with each
+# other - dbt-core + dbt-duckdb are needed for every local `dbt run`, and
+# dbt-athena-community is needed today for deploy/buildspec.yml's existing
+# `dbt run --target athena` CI step, regardless of what DATA_LAYER the API
+# itself is running with. All three are installed unconditionally.
+dbt-core==1.*
+dbt-duckdb==1.*             # local target
+dbt-athena-community==1.*   # athena target (CI/prod)

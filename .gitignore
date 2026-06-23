@@ -1,0 +1,45 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Local DuckDB data (regenerated via dbt seed/run or hand-seeding — never committed) ---
+*.duckdb
+*.duckdb.wal
+backend/fnma.duckdb
+
+# --- dbt ---
+backend/dbt_project/target/
+backend/dbt_project/logs/
+backend/dbt_project/dbt_packages/
+backend/dbt_project/.user.yml
+**/dbt_packages/
+**/logs/dbt.log
+
+# --- Environment / secrets (everything here is env_var()-driven — never commit real values) ---
+.env
+.env.*
+*.pem
+*.key
+
+# --- Node (frontend MFE tooling, if/when present) ---
+node_modules/
+npm-debug.log*
+
+# --- Docker ---
+*.pid
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

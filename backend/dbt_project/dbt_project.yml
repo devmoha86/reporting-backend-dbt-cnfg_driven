@@ -1,0 +1,27 @@
+# Project-level dbt config - shared across every dashboard. This is the one dbt
+# file that does NOT live inside a dashboard's own folder, because dbt itself
+# requires exactly one dbt_project.yml per project; everything dashboard-specific
+# (staging/marts/sources/seeds/schema) lives under backend/dashboards/<id>/dbt/,
+# which is why model-paths and seed-paths below both point up and over at
+# ../dashboards instead of a local models/ folder.
+#
+# Matches deploy/buildspec.yml's existing `cd backend/dbt_project` + `--profiles-dir .`
+# usage - this file's location was chosen to match that pre-existing CI assumption,
+# not the other way around.
+name: 'fnma_reporting'
+version: '1.0.0'
+config-version: 2
+
+profile: 'fnma_reporting'
+
+model-paths: ["../dashboards"]
+seed-paths: ["../dashboards"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  fnma_reporting:
+    +materialized: table

@@ -146,6 +146,8 @@
 
     <div class="section-label">Status</div>
     <a href="#faq">🆘 Troubleshooting / FAQ</a>
+    <a href="#perf-testing">🧪 Performance &amp; Redis Testing</a>
+    <a href="#cicd-notes">🛠️ CI/CD: GitLab &amp; Terraform</a>
     <a href="#open-items">Open Placeholders</a>
   </nav>
 </div>
@@ -177,11 +179,11 @@
       <tr><td>Python 3.11</td><td>Matches the version the Dockerfile actually deploys with — avoids "works on my machine" surprises.</td><td><code>python3 --version</code> to check; install 3.11 if you're on something else.</td></tr>
       <tr><td>A virtualenv with this repo's dependencies</td><td>Isolates this project's FastAPI/DuckDB/Pydantic/etc. versions from anything else on your machine.</td><td><code>cd backend &amp;&amp; python -m venv .venv &amp;&amp; source .venv/bin/activate &amp;&amp; pip install -r requirements.txt</code></td></tr>
       <tr><td>Redis <span class="badge badge-verified">OPTIONAL</span></td><td>Caching layer — but the whole system fails open without it. You can develop and test a new dashboard with zero Redis installed.</td><td><code>redis-server --daemonize yes --port 6379</code> (skip entirely if you don't want to install it)</td></tr>
-      <tr><td>dbt-core + a DuckDB/Athena adapter <span class="badge badge-verified">NOT YET WIRED UP</span></td><td>This is what eventually turns your generated SQL into real tables. <strong>As of today, this repo has no <code>dbt_project.yml</code>/<code>profiles.yml</code></strong> (see <a href="#open-items">Open Placeholders</a>), so a real <code>dbt run</code> isn't possible yet. Don't block on installing dbt to get started — see the <a href="#pipeline-5">Step 5 workaround</a>.</td><td>N/A for now — see Step 5</td></tr>
+      <tr><td>dbt-core + a DuckDB/Athena adapter <span class="badge badge-verified">VERIFIED WORKING</span></td><td>Turns your generated SQL into real tables. <code>backend/dbt_project/dbt_project.yml</code>/<code>profiles.yml</code> now exist and a real <code>dbt seed &amp;&amp; dbt run &amp;&amp; dbt test</code> has been run end-to-end against DuckDB — see <a href="#run-dbt">Running dbt</a>.</td><td><code>pip install -r requirements.txt</code> already includes <code>dbt-core</code>/<code>dbt-duckdb</code>/<code>dbt-athena-community</code> — see <a href="#run-dbt">Running dbt</a></td></tr>
       <tr><td>AWS Athena/Glue access</td><td>Only needed for the production data path (<code>DATA_LAYER=athena</code>). Local development uses DuckDB and needs none of this.</td><td>N/A for local dev</td></tr>
       <tr><td>YAML familiarity</td><td>Every dashboard is a YAML file. No new Python is required to add one.</td><td>If you've never written YAML: indentation is meaningful (use spaces, not tabs); lists start with <code>-</code>; the template at <a href="#template-yaml">dashboards/_template/config.yaml</a> is annotated line by line.</td></tr>
     </table>
-    <div class="info accent">If you only do one thing from this table: create the venv and <code>pip install -r requirements.txt</code>. Everything else is either optional for local dev or not yet usable in this repo.</div>
+    <div class="info accent">If you only do one thing from this table: create the venv and <code>pip install -r requirements.txt</code>. Redis is optional (fails open); dbt is now fully wired up and verified — see <a href="#run-dbt">Running dbt</a>.</div>
   </section>
 
   <section id="directory">
@@ -200,18 +202,25 @@
 │   │   ├── cache/keys.py                 <span style="color:var(--dim)"># deterministic cache key builder</span>
 │   │   ├── filters.py                     <span style="color:var(--dim)"># generic WHERE-clause builder</span>
 │   │   └── router_factory.py               <span class="accent"># config -> live FastAPI router</span>
+│   ├── dbt_project/                     <span style="color:var(--green)"># NEW — the ONE shared dbt project file pair, verified working</span>
+│   │   ├── dbt_project.yml             <span style="color:var(--dim)"># model-paths/seed-paths -> ../dashboards</span>
+│   │   └── profiles.yml                  <span style="color:var(--dim)"># duckdb (default, local) + athena (CI/prod) targets, env_var()-driven, no secrets</span>
 │   ├── dashboards/                      <span style="color:var(--accent)"># one self-contained folder per dashboard</span>
 │   │   ├── _template/                 <span style="color:var(--dim)"># copy this folder to start a new dashboard (ignored: "_" prefix)</span>
 │   │   │   └── config.yaml
 │   │   └── ldc/                        <span style="color:var(--green)"># dashboard #1, fully configured</span>
 │   │       ├── config.yaml             <span style="color:var(--dim)"># <- you write this</span>
 │   │       └── dbt/
-│   │           ├── staging/stg_ldc_case_requests.sql        <span style="color:var(--dim)"># <- generated</span>
-│   │           └── marts/
-│   │               ├── mart_ldc_case_queue.sql                <span style="color:var(--warn)"># <- generated SHELL; TODO business logic goes here</span>
-│   │               ├── mart_ldc_status_summary.sql            <span style="color:var(--warn)"># <- generated DEFAULT; this dashboard's entire chart-aggregation logic</span>
-│   │               └── schema_ldc.yml                          <span style="color:var(--dim)"># <- generated</span>
-│   ├── scripts/generate_dbt_models.py        <span style="color:var(--dim)"># config.yaml -> dbt/staging + dbt/marts SQL + schema.yml</span>
+│   │           ├── staging/
+│   │           │   ├── stg_ldc_case_requests.sql        <span style="color:var(--dim)"># <- generated</span>
+│   │           │   └── sources_ldc.yml                    <span style="color:var(--green)"># <- NEW, generated; resolves source() to the seed (duckdb) or real table (athena)</span>
+│   │           ├── marts/
+│   │           │   ├── mart_ldc_case_queue.sql                <span style="color:var(--warn)"># <- generated SHELL; TODO business logic goes here</span>
+│   │           │   ├── mart_ldc_status_summary.sql            <span style="color:var(--warn)"># <- generated DEFAULT; this dashboard's entire chart-aggregation logic</span>
+│   │           │   └── schema_ldc.yml                          <span style="color:var(--dim)"># <- generated</span>
+│   │           └── seeds/
+│   │               └── seed_ldc_raw.csv                          <span style="color:var(--green)"># <- NEW, generated header only; sample rows filled in by hand, loaded via `dbt seed`</span>
+│   ├── scripts/generate_dbt_models.py        <span style="color:var(--dim)"># config.yaml -> dbt/staging + dbt/marts + dbt/seeds SQL/CSV + schema.yml + sources.yml</span>
 │   └── cache_sync/sync.py                     <span style="color:var(--dim)"># config-driven cache-sync job</span>
 ├── deploy/
 │   ├── Dockerfile, docker-compose.yml, task-definition.template.json,
@@ -226,15 +235,18 @@
     <div class="info accent" style="font-size:14px;">
       <strong>The one rule that matters most in this whole document:</strong> dashboard-specific business logic — SLA thresholds, cycle-time math, custom rollups, and chart aggregations — is written in dbt SQL, never in the shared Python framework code. There are exactly two places it goes:<br><br>
       1. <code>backend/dashboards/&lt;dashboard_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_queue.sql</code>, inside the <code>TODO</code> lines that <code>generate_dbt_models.py</code> stamps in for every column you flagged <code>needs_clarification: true</code> in your <code>config.yaml</code>.<br>
-      2. <code>backend/dashboards/&lt;dashboard_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_summary.sql</code>, which is the <em>entire</em> definition of that dashboard's summary chart. <code>router_factory.py</code> never aggregates anything — it only does <code>SELECT * FROM</code> this model. Whatever shape your chart needs (status counts, sums, a trend line) is written here, in SQL.
+      2. <code>backend/dashboards/&lt;dashboard_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_summary.sql</code>, which is the <em>entire</em> definition of that dashboard's summary chart. <code>router_factory.py</code> never aggregates anything — it only does <code>SELECT * FROM</code> this model. Whatever shape your chart needs (status counts, sums, a trend line) is written here, in SQL.<br><br>
+      A third spot — not business logic, just sample data — is <code>dashboards/&lt;id&gt;/dbt/seeds/seed_&lt;id&gt;_raw.csv</code>: the generator only writes the header row, a human fills in realistic sample rows so <code>dbt seed &amp;&amp; dbt run</code> actually produces data locally.
     </div>
     <table>
       <tr><th>File</th><th>Who edits it</th><th>What goes there</th></tr>
       <tr><td><code>dashboards/&lt;id&gt;/config.yaml</code></td><td>You, by hand</td><td>Source table, staging columns, primary key, status values, filters, API shape — declarative, no SQL.</td></tr>
       <tr><td><code>dashboards/&lt;id&gt;/dbt/staging/stg_&lt;id&gt;.sql</code></td><td><strong>Generator only — never hand-edit</strong></td><td>Pure column casting. If a column is wrong, fix <code>config.yaml</code> and re-run the generator; don't patch this file directly, the next re-run silently overwrites it.</td></tr>
+      <tr><td><code>dashboards/&lt;id&gt;/dbt/staging/sources_&lt;id&gt;.yml</code></td><td><strong>Generator only — never hand-edit</strong></td><td>Resolves the staging model's <code>{{ source(...) }}</code> reference to two different physical tables depending on dbt target: the seed CSV below for <code>duckdb</code>, the real <code>source.database</code>/<code>source.table</code> from <code>config.yaml</code> for <code>athena</code>. Update <code>config.yaml</code> and re-run the generator once the real source names land — don't hand-edit this file.</td></tr>
       <tr><td><code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_queue.sql</code></td><td><strong>You, inside the TODO blocks only</strong></td><td>This is it. Every line that starts <code>, NULL AS &lt;col&gt; -- TODO (NEEDS CLARIFICATION): ...</code> is a placeholder for real SQL — replace the <code>NULL</code> with the actual expression. The plain column list above the TODO block is generator output; leave it alone.</td></tr>
       <tr><td><code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_summary.sql</code></td><td><strong>You, freely — this is the other place business logic goes</strong></td><td>The generator writes a zero-filled status-count default here, but this file is the <em>entire</em> business logic for that dashboard's summary chart. The API layer (<code>router_factory.get_summary()</code>) does nothing but <code>SELECT * FROM</code> this model and return the rows — no GROUP BY, no chart-shaping, no aggregation in Python, ever. If your dashboard's summary chart is a sum-by-category, a trend line, or a multi-series rollup instead of a status count, rewrite this file's query to produce that shape directly. Re-running the generator overwrites it back to the default, same caveat as the queue mart's TODO blocks.</td></tr>
       <tr><td><code>dashboards/&lt;id&gt;/dbt/marts/schema_&lt;id&gt;.yml</code></td><td><strong>Generator only</strong></td><td>dbt tests (not_null/unique on the primary key, accepted_values on the status field) plus a documented entry for every other column.</td></tr>
+      <tr><td><code>dashboards/&lt;id&gt;/dbt/seeds/seed_&lt;id&gt;_raw.csv</code></td><td><strong>Generator writes the header; you fill in the rows</strong></td><td>Sample rows matching the staging model's raw <code>source_col</code> names — loaded by <code>dbt seed</code> into the table <code>sources_&lt;id&gt;.yml</code> points the <code>duckdb</code> target at. The generator can't invent business data, so re-running it after you've added rows wipes them back to header-only (back them up first).</td></tr>
     </table>
     <div class="info warn">Why the TODO block survives a re-run but nothing else does: <code>build_mart_queue_sql()</code> in the generator always emits <code>NULL AS &lt;col&gt;</code> for everything still listed under <code>mart.derived_columns</code> in the config — it does not read the file back first. If you've already filled in real SQL there and then re-run the generator (e.g. because you added a new staging column), <strong>your business logic will be silently overwritten back to <code>NULL</code></strong>. Either avoid re-running the generator once the TODOs are filled in, or re-paste the logic back in afterward. See <a href="#pipeline-4">Step 4</a> below.</div>
   </section>
@@ -276,19 +288,22 @@
 
   <div class="filecard" id="pipeline-3">
     <div class="path">Step 3 — Run the generator</div>
-    <div class="purpose"><code>scripts/generate_dbt_models.py</code> reads <code>config.yaml</code> and writes three SQL files plus one schema file, all <strong>inside that same dashboard's folder</strong> — nothing is written anywhere else in the repo.</div>
+    <div class="purpose"><code>scripts/generate_dbt_models.py</code> reads <code>config.yaml</code> and writes its staging SQL, <code>sources.yml</code>, mart SQL, <code>schema.yml</code>, and a header-only seed CSV, all <strong>inside that same dashboard's folder</strong> — nothing is written anywhere else in the repo except the one shared <code>backend/dbt_project/</code> pair.</div>
     <pre><code>cd backend
 python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <pre><code># From generate_dbt_models.py's main() — output path is derived from the config's own location:
 dashboard_dir = cfg_path.parent                      # dashboards/&lt;dashboard_id&gt;/
 staging_dir = dashboard_dir / "dbt" / "staging"
 marts_dir = dashboard_dir / "dbt" / "marts"
+seeds_dir = dashboard_dir / "dbt" / "seeds"
 
 (staging_dir / f"{cfg['staging']['model_name']}.sql").write_text(build_staging_sql(cfg, config_filename))
+(staging_dir / f"sources_{dash_id}.yml").write_text(build_sources_yml(cfg, config_filename))
 (marts_dir / f"{cfg['mart']['queue_model_name']}.sql").write_text(build_mart_queue_sql(cfg, config_filename))
 (marts_dir / f"{cfg['mart']['summary_model_name']}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
-(marts_dir / f"schema_{cfg['dashboard_id']}.yml").write_text(build_schema_yml(cfg, config_filename))</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
-    <p>Produces: <code>dashboards/&lt;id&gt;/dbt/staging/stg_&lt;id&gt;.sql</code>, <code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_queue.sql</code>, <code>.../mart_&lt;id&gt;_summary.sql</code>, <code>.../schema_&lt;id&gt;.yml</code>. Full generated output for <code>ldc</code> is under <a href="#generated-output">Generated Output</a>.</p>
+(marts_dir / f"schema_{cfg['dashboard_id']}.yml").write_text(build_schema_yml(cfg, config_filename))
+seed_path.write_text(build_seed_csv(cfg, config_filename))   # header only — sample rows are filled in by hand</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <p>Produces: <code>dashboards/&lt;id&gt;/dbt/staging/stg_&lt;id&gt;.sql</code>, <code>.../staging/sources_&lt;id&gt;.yml</code>, <code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_queue.sql</code>, <code>.../mart_&lt;id&gt;_summary.sql</code>, <code>.../schema_&lt;id&gt;.yml</code>, and <code>dashboards/&lt;id&gt;/dbt/seeds/seed_&lt;id&gt;_raw.csv</code> (header only). Full generated output for <code>ldc</code> is under <a href="#generated-output">Generated Output</a>.</p>
   </div>
 
   <div class="filecard" id="pipeline-4">
@@ -318,14 +333,15 @@ ORDER BY request_no</code><button class="copy-btn" onclick="copyCode(this)">Copy
   </div>
 
   <div class="filecard" id="pipeline-5">
-    <div class="path">Step 5 — dbt run / dbt test</div>
-    <div class="purpose">Builds the staging + mart tables in the warehouse and runs the generated tests (<code>not_null</code>/<code>unique</code> on the primary key, <code>accepted_values</code> on the status field).</div>
-    <pre><code>cd backend/dbt_project   # once dbt_project.yml/profiles.yml exist — see "Running dbt" below
-dbt run  --select &lt;dashboard_id&gt;
-dbt test --select &lt;dashboard_id&gt;</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
-    <div class="info warn">This package doesn't bundle <code>dbt_project.yml</code>/<code>profiles.yml</code>/<code>sources.yml</code> (see <a href="#run-dbt">Running dbt</a>). Whoever sets those up needs <code>model-paths</code> in <code>dbt_project.yml</code> to include <code>dashboards</code> so dbt discovers SQL nested under <code>dashboards/&lt;id&gt;/dbt/</code> — <strong>unconfirmed:</strong> verify dbt's yml parser tolerates each dashboard's <code>config.yaml</code> sitting in that same tree (it has none of dbt's recognized top-level keys like <code>models:</code>/<code>sources:</code>); if not, exclude it via dbt's <code>model-paths</code>/<code>.dbtignore</code> patterns before relying on this layout in CI.</div>
-    <h4>No working dbt project yet? Test your mart logic anyway</h4>
-    <p>Since there's no live <code>dbt_project.yml</code> in this repo today, you can't actually run the commands above. That doesn't block you from finishing and verifying your dashboard — hand-create a DuckDB table matching your mart's columns, the same way the smoke test does it, and point the API at it:</p>
+    <div class="path">Step 5 — dbt seed / dbt run / dbt test</div>
+    <div class="purpose">Loads the seed CSV, builds the staging + mart tables in the warehouse, and runs the generated tests (<code>not_null</code>/<code>unique</code> on the primary key, <code>accepted_values</code> on the status field). Verified working end-to-end against DuckDB this session.</div>
+    <pre><code>cd backend/dbt_project
+dbt seed  --select &lt;dashboard_id&gt;_raw --profiles-dir .
+dbt run   --select &lt;dashboard_id&gt;     --profiles-dir .
+dbt test  --select &lt;dashboard_id&gt;     --profiles-dir .</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info green">Confirmed (was previously flagged unconfirmed): with <code>model-paths: ["../dashboards"]</code>, dbt's yaml parser walks into each dashboard's <code>config.yaml</code> sitting in that same tree and <strong>silently ignores it</strong> — no parse error. Verified via real <code>dbt seed</code> output: "Found 3 models, 1 seed, 3 data tests, 1 source, 485 macros." No exclude pattern needed.</div>
+    <h4>Don't want to set up dbt right now? Test your mart logic anyway</h4>
+    <p>A full working dbt project now exists (see <a href="#run-dbt">Running dbt</a>), but if you'd rather skip it for a quick iteration loop, hand-create a DuckDB table matching your mart's columns, the same way the smoke test does it, and point the API at it:</p>
     <pre><code># In a Python shell or a throwaway script, from backend/:
 import duckdb
 con = duckdb.connect("./fnma.duckdb")   # matches DUCKDB_PATH you'll set below
@@ -1031,18 +1047,38 @@ api:
 
   <div class="filecard">
     <div class="path">backend/scripts/generate_dbt_models.py</div>
-    <div class="purpose">Reads one dashboard config and scaffolds its dbt staging model, mart models, and <code>schema.yml</code>. Column casting, model structure, and test stubs are generated. Dashboard-specific business logic is left for a human in two places: the queue mart's <code>TODO</code> comments (anything flagged <code>needs_clarification</code>), and the summary mart, which is generated with a working zero-filled status-count default but is fully expected to be rewritten per dashboard for whatever chart aggregation it actually needs.</div>
+    <div class="purpose">Reads one dashboard config and scaffolds its dbt staging model, <code>sources.yml</code>, mart models, <code>schema.yml</code>, and a header-only seed CSV. Column casting, model structure, source wiring, and test stubs are generated. Dashboard-specific work is left for a human in three places: the queue mart's <code>TODO</code> comments (anything flagged <code>needs_clarification</code>), the summary mart (generated with a working zero-filled status-count default but fully expected to be rewritten per dashboard for whatever chart aggregation it actually needs), and the seed CSV's sample rows (the generator can't invent business data, so it only writes the header).</div>
     <h4>Usage</h4>
     <pre><code>python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <pre><code>"""
-Reads one dashboard YAML config and scaffolds its dbt staging model, mart models,
-and schema.yml — written into that SAME dashboard's own folder
-(dashboards/&lt;dashboard_id&gt;/dbt/staging, dashboards/&lt;dashboard_id&gt;/dbt/marts).
-This is the "without much coding" part for the dbt layer: column casting, model
-structure, and test stubs are generated; dashboard-specific business logic is
-left for a human to fill in - as a TODO in the queue mart (flagged
-needs_clarification in the config), and as a fully editable default in the
-summary mart, since every dashboard's chart aggregation is different.
+Reads one dashboard's config.yaml and scaffolds its dbt staging model, mart models,
+sources.yml, a local-dev seed, and schema.yml — written into that same dashboard's
+folder, under dbt/staging/, dbt/marts/, and dbt/seeds/. This is the "without much
+coding" part for the dbt layer: column casting, model structure, source wiring,
+and test stubs are generated; dashboard-specific business logic is left for a
+human to fill in - as a TODO in the queue mart (flagged needs_clarification in the
+config), as a fully editable default in the summary mart (since every dashboard's
+chart aggregation is different), and as actual sample rows in the seed CSV (the
+generator can't invent business data, so it only writes the header row).
+
+Every dashboard is fully self-contained under backend/dashboards/&lt;dashboard_id&gt;/:
+    dashboards/&lt;dashboard_id&gt;/config.yaml                            &lt;- you write this
+    dashboards/&lt;dashboard_id&gt;/dbt/staging/*.sql                       &lt;- this script writes these
+    dashboards/&lt;dashboard_id&gt;/dbt/staging/sources_&lt;dashboard_id&gt;.yml   &lt;- and this
+    dashboards/&lt;dashboard_id&gt;/dbt/marts/*.sql                          &lt;- this script writes these
+    dashboards/&lt;dashboard_id&gt;/dbt/marts/schema_&lt;dashboard_id&gt;.yml      &lt;- and this
+    dashboards/&lt;dashboard_id&gt;/dbt/seeds/seed_&lt;dashboard_id&gt;_raw.csv    &lt;- header only; fill in sample rows by hand
+
+The generated sources.yml resolves the same {{ source(...) }} reference used by
+the staging model to two different physical tables depending on dbt target: the
+duckdb target (local dev) points at the seed CSV above, so `dbt seed && dbt run`
+works today with zero real source data; the athena target (CI/prod) points at
+this dashboard's real source.database/source.table from config.yaml, which may
+still be a TBD_* placeholder pending the source data team. See
+backend/dbt_project/ for the project-level dbt_project.yml and profiles.yml that
+tie every dashboard's generated models together (model-paths/seed-paths both
+point at ../dashboards, so nothing dbt-related needs to live outside each
+dashboard's own folder except that one shared project file pair).
 
 Usage:
     python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml
@@ -1126,8 +1162,8 @@ def build_mart_summary_sql(cfg: dict, config_filename: str) -> str:
             f"    select\n        {status_field},\n        count(*) as request_count\n"
             f"    from {{{{ ref('{stg}') }}}}\n    group by {status_field}\n),\n"
             f"all_statuses as (\n"
-            f"    select column1 as {status_field}\n"
-            f"    from (values\n        {values_rows}\n    ) as t\n)\n"
+            f"    select {status_field}\n"
+            f"    from (values\n        {values_rows}\n    ) as t({status_field})\n)\n"
             f"select\n"
             f"    s.{status_field},\n"
             f"    coalesce(c.request_count, 0) as request_count\n"
@@ -1142,6 +1178,68 @@ def build_mart_summary_sql(cfg: dict, config_filename: str) -> str:
         )
 
     return _header(config_filename) + note + body
+
+
+def build_sources_yml(cfg: dict, config_filename: str) -> str:
+    """
+    Generates this dashboard's sources.yml: defines the source the staging model
+    already references via {{ source(database, table) }}, resolved to two
+    different physical tables depending on dbt target -
+
+      - duckdb (local dev): the seed CSV this same generator scaffolds at
+        dbt/seeds/seed_&lt;dashboard_id&gt;_raw.csv, loaded by `dbt seed` into a table
+        of the same name. This makes `dbt seed && dbt run` work today, with zero
+        real source data.
+      - athena (CI/prod): the real source.database/source.table from this
+        dashboard's config.yaml - may still be a TBD_* placeholder pending the
+        source data team, same convention as everywhere else in this dashboard's
+        generated files.
+
+    Re-running the generator overwrites this file unconditionally, same caveat
+    as schema_&lt;dashboard_id&gt;.yml - if the real source names land, update
+    config.yaml first, then re-run the generator rather than hand-editing this.
+    """
+    src = cfg["source"]
+    dash_id = cfg["dashboard_id"]
+    seed_identifier = f"seed_{dash_id}_raw"
+    schema_jinja = "{{ 'main' if target.name == 'duckdb' else '%s' }}" % src["database"]
+    identifier_jinja = "{{ '%s' if target.name == 'duckdb' else '%s' }}" % (seed_identifier, src["table"])
+
+    return (
+        f"# AUTO-GENERATED by scripts/generate_dbt_models.py from {config_filename}\n"
+        f"# Resolves {{{{ source('{src['database']}', '{src['table']}') }}}} (used by the staging\n"
+        f"# model) to two different tables depending on dbt target:\n"
+        f"#   - duckdb (local dev) -&gt; dbt/seeds/{seed_identifier}.csv, loaded via `dbt seed`\n"
+        f"#   - athena (CI/prod)   -&gt; the real source.database/source.table in config.yaml,\n"
+        f"#                          confirm with the source data team before relying on it\n"
+        f"version: 2\n"
+        f"sources:\n"
+        f"  - name: {src['database']}\n"
+        f"    schema: \"{schema_jinja}\"\n"
+        f"    tables:\n"
+        f"      - name: {src['table']}\n"
+        f"        identifier: \"{identifier_jinja}\"\n"
+    )
+
+
+def build_seed_csv(cfg: dict, config_filename: str) -> str:
+    """
+    Generates this dashboard's local-dev seed: a header-only CSV using the same
+    raw source_col names the staging model casts from (not the renamed staging
+    column names). `dbt seed` loads this into a real table named
+    seed_&lt;dashboard_id&gt;_raw, which sources.yml points the duckdb target at - the
+    thing that actually lets `dbt seed && dbt run` work locally with zero real
+    source data.
+
+    The generator only writes the header row; it can't invent business data.
+    Fill in sample rows by hand after generating. Re-running the generator WILL
+    overwrite this file unconditionally (no read-back, no merge), the same
+    caveat as every other generated file here - back up hand-added rows first,
+    or stop re-running the generator for this dashboard's seed once it has real
+    sample data in it.
+    """
+    header = ",".join(c["source_col"] for c in cfg["staging"]["columns"])
+    return header + "\n"
 
 
 def build_schema_yml(cfg: dict, config_filename: str) -> str:
@@ -1196,23 +1294,36 @@ def main(config_path: str):
     config_filename = str(cfg_path)
 
     # Output lands inside the same dashboard folder the config came from -
-    # dashboards/&lt;dashboard_id&gt;/dbt/{staging,marts}/ - so one dashboard = one
-    # self-contained folder with nothing written anywhere else in the repo.
+    # dashboards/&lt;dashboard_id&gt;/dbt/{staging,marts,seeds}/ - so one dashboard = one
+    # self-contained folder with nothing written anywhere else in the repo, except
+    # the shared dbt_project.yml/profiles.yml pair under backend/dbt_project/.
     dashboard_dir = cfg_path.parent
     staging_dir = dashboard_dir / "dbt" / "staging"
     marts_dir = dashboard_dir / "dbt" / "marts"
+    seeds_dir = dashboard_dir / "dbt" / "seeds"
     staging_dir.mkdir(parents=True, exist_ok=True)
     marts_dir.mkdir(parents=True, exist_ok=True)
+    seeds_dir.mkdir(parents=True, exist_ok=True)
+
+    dash_id = cfg["dashboard_id"]
+    seed_path = seeds_dir / f"seed_{dash_id}_raw.csv"
+    seed_existed = seed_path.exists()
 
     (staging_dir / f"{cfg['staging']['model_name']}.sql").write_text(build_staging_sql(cfg, config_filename))
+    (staging_dir / f"sources_{dash_id}.yml").write_text(build_sources_yml(cfg, config_filename))
     (marts_dir / f"{cfg['mart']['queue_model_name']}.sql").write_text(build_mart_queue_sql(cfg, config_filename))
     (marts_dir / f"{cfg['mart']['summary_model_name']}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
-    (marts_dir / f"schema_{cfg['dashboard_id']}.yml").write_text(build_schema_yml(cfg, config_filename))
+    (marts_dir / f"schema_{dash_id}.yml").write_text(build_schema_yml(cfg, config_filename))
+    seed_path.write_text(build_seed_csv(cfg, config_filename))
 
-    print(f"Generated dbt models for '{cfg['dashboard_id']}' in {dashboard_dir / 'dbt'}")
+    print(f"Generated dbt models for '{dash_id}' in {dashboard_dir / 'dbt'}")
     todo_count = sum(1 for dc in cfg["mart"].get("derived_columns", []) if dc.get("needs_clarification"))
     if todo_count:
         print(f"  -&gt; {todo_count} derived column(s) need business-rule clarification before this mart is complete.")
+    if seed_existed:
+        print(f"  -&gt; {seed_path} already existed and was OVERWRITTEN (header only) - restore any hand-added sample rows.")
+    else:
+        print(f"  -&gt; {seed_path} is header-only - add sample rows by hand before `dbt seed` will produce usable local data.")
 
 
 if __name__ == "__main__":
@@ -1221,6 +1332,7 @@ if __name__ == "__main__":
         sys.exit(1)
     main(sys.argv[1])</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <div class="info green">Fixed: the original <code>build_schema_yml()</code> only ever emitted the primary key and status field, so <code>schema_ldc.yml</code> was missing 17 of its 19 columns. It now loops over every staging column and every derived column, so <code>schema.yml</code> is always complete for any dashboard, automatically.</div>
+    <div class="info green">Fixed (caught by actually running <code>dbt run</code>, not by inspection): <code>build_mart_summary_sql()</code>'s zero-fill CTE used an unaliased <code>(VALUES (...)) AS t</code> and referenced <code>column1</code> — DuckDB 1.10.1 names unaliased VALUES columns <code>col0</code>, not <code>column1</code>/<code>column2</code>, so every generated summary mart failed at <code>dbt run</code> with <code>Binder Error: Referenced column "column1" not found</code>. Fixed by explicitly aliasing the VALUES clause: <code>(VALUES (...)) AS t(&lt;status_field&gt;)</code> — also more portable to Athena/Trino than relying on either engine's positional default. The code above and the generated output below both reflect the fix; re-run the generator on any dashboard whose summary mart was generated before this.</div>
   </div>
 
   <div class="filecard" id="generated-output">
@@ -1244,6 +1356,29 @@ if __name__ == "__main__":
     CAST(loan_count AS INTEGER) AS loan_count,
     CAST(attribute_count AS INTEGER) AS attribute_count
 FROM {{ source('TBD_source_database', 'TBD_ldc_case_requests') }}</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+
+    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/staging/sources_ldc.yml <span style="color:var(--green);font-weight:400;">— NEW</span></div>
+    <div class="purpose">Resolves the <code>{{ source(...) }}</code> reference above to two different physical tables depending on dbt target — actual generated output, then hand-filled with the same 3 sample rows shown in the seed CSV below.</div>
+    <pre><code># AUTO-GENERATED by scripts/generate_dbt_models.py from dashboards/ldc/config.yaml
+# Resolves {{ source('TBD_source_database', 'TBD_ldc_case_requests') }} (used by the staging
+# model) to two different tables depending on dbt target:
+#   - duckdb (local dev) -> dbt/seeds/seed_ldc_raw.csv, loaded via `dbt seed`
+#   - athena (CI/prod)   -> the real source.database/source.table in config.yaml,
+#                          confirm with the source data team before relying on it
+version: 2
+sources:
+  - name: TBD_source_database
+    schema: "{{ 'main' if target.name == 'duckdb' else 'TBD_source_database' }}"
+    tables:
+      - name: TBD_ldc_case_requests
+        identifier: "{{ 'seed_ldc_raw' if target.name == 'duckdb' else 'TBD_ldc_case_requests' }}"</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+
+    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/seeds/seed_ldc_raw.csv <span style="color:var(--green);font-weight:400;">— NEW</span></div>
+    <div class="purpose">Generator writes the header row only (same raw <code>source_col</code> names the staging model casts from); the 3 data rows below were filled in by hand so <code>dbt seed</code> produces real local data.</div>
+    <pre><code>request_no,status,sub_status,submitter_name,submitter_group,seller_number,seller_name,servicer_number,servicer_name,reviewer_group,reviewer_name,fm_loan_number,submission_date,completion_date,loan_count,attribute_count
+100101,Draft,Draft,Jennifer Lee,External,99887,PennyMac,7721,,Auto-Decision,System,,2026-05-26,,44,0
+100401,Completed,Request Completed,David Smith,Internal,99887,PennyMac,7721,,LDC,David Smith,,2026-05-25,2026-05-25,110,20
+100501,Canceled,Canceled,Michael Brown,Internal,55210,Mr. Cooper,2210,,LDC,Michael Brown,,2026-05-26,,19,3</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
 
     <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/marts/mart_ldc_case_queue.sql</div>
     <pre><code>SELECT
@@ -1289,7 +1424,7 @@ with counts as (
     group by request_status
 ),
 all_statuses as (
-    select column1 as request_status
+    select request_status
     from (values
         ('Draft'),
         ('Exception Review'),
@@ -1297,7 +1432,7 @@ all_statuses as (
         ('Completed'),
         ('Canceled'),
         ('Rejected')
-    ) as t
+    ) as t(request_status)
 )
 select
     s.request_status,
@@ -1305,6 +1440,7 @@ select
 from all_statuses s
 left join counts c using (request_status)
 order by s.request_status</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info green">This is the post-fix version — explicit <code>t(request_status)</code> column alias instead of the original <code>column1</code> reference. Verified via a real <code>dbt run</code>: <code>[('Canceled', 1), ('Completed', 1), ('Draft', 1), ('Exception Review', 0), ('Pending Reclass', 0), ('Rejected', 0)]</code>.</div>
 
     <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/marts/schema_ldc.yml</div>
     <pre><code># AUTO-GENERATED by scripts/generate_dbt_models.py from dashboards/ldc/config.yaml
@@ -1717,12 +1853,19 @@ if __name__ == "__main__":
   </ol>
 
   <h2 id="run-dbt">▶️ Running dbt</h2>
-  <p>This package generates dbt model SQL but does not bundle <code>dbt_project.yml</code>/<code>profiles.yml</code>/<code>sources.yml</code> — those follow the pattern already documented in this project's backend README, and weren't duplicated here to avoid drifting out of sync. Carry that pair over, add a <code>sources.yml</code> entry for each dashboard's <code>source.database</code>/<code>source.table</code>, and point <code>model-paths</code> at <code>dashboards</code> (models now live at <code>dashboards/&lt;id&gt;/dbt/{staging,marts}/</code>, not a single flat folder), then:</p>
-  <pre><code>cd backend
-dbt seed  --profiles-dir .
-dbt run   --profiles-dir .
-dbt test  --profiles-dir .</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
-  <div class="info warn">Unconfirmed: with <code>model-paths: ["dashboards"]</code>, dbt's yaml parser will also walk into each dashboard's <code>config.yaml</code> (a non-dbt file) sitting in that same tree. Whether that's silently ignored or causes a parse error hasn't been verified — check this before relying on it.</div>
+  <div class="info green"><code>dbt run</code>/<code>dbt test</code>/<code>dbt seed</code> now actually work locally — verified end-to-end this session, not just scaffolded (see the bug-fix note under <a href="#generator">dbt Generation</a> above). There's one shared dbt project at <code>backend/dbt_project/</code> (<code>dbt_project.yml</code> + <code>profiles.yml</code>, no secrets, both <code>env_var()</code>-driven), and the generator produces every dashboard-specific dbt file inside that dashboard's own folder: <code>dbt/staging/&lt;model&gt;.sql</code>, <code>dbt/staging/sources_&lt;id&gt;.yml</code>, <code>dbt/marts/*.sql</code>, <code>dbt/marts/schema_&lt;id&gt;.yml</code>, and <code>dbt/seeds/seed_&lt;id&gt;_raw.csv</code>.</div>
+  <pre><code>cd backend/dbt_project
+dbt seed --profiles-dir .
+dbt run  --profiles-dir .
+dbt test --profiles-dir .</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  <p><code>dbt_project.yml</code>'s <code>model-paths</code>/<code>seed-paths</code> both point at <code>../dashboards</code>, so dbt discovers every dashboard's SQL/CSV without any of it living next to <code>dbt_project.yml</code> itself. The default target is <code>duckdb</code>, writing to <code>backend/fnma.duckdb</code> (override with <code>DUCKDB_PATH</code> if running dbt and the API from different working directories) — matches <code>deploy/buildspec.yml</code>'s existing <code>cd backend/dbt_project</code> assumption, so no CI changes were needed for the local path to line up with it. <code>dbt run --target athena --profiles-dir .</code> is the CI/prod path, same as <code>buildspec.yml</code> already runs; that target needs real AWS credentials and the <code>dbt-athena-community</code> adapter (now uncommented in <code>requirements.txt</code>).</p>
+
+  <table>
+    <tr><th>What</th><th>How it actually works</th></tr>
+    <tr><td>The source resolves to different tables per target</td><td>Each dashboard's generated <code>sources_&lt;id&gt;.yml</code> defines one source name (the same <code>source.database</code>/<code>source.table</code> from <code>config.yaml</code> — for <code>ldc</code>, still <code>TBD_source_database</code>/<code>TBD_ldc_case_requests</code> pending the source data team) but resolves it to two different physical tables via target-conditional Jinja: <code>duckdb</code> points at the seeded <code>dbt/seeds/seed_&lt;id&gt;_raw.csv</code>, and <code>athena</code> points at the real source once those stop being <code>TBD_*</code>. The staging SQL itself never changes — only <code>sources.yml</code> needs updating when real names land.</td></tr>
+    <tr><td>This package doesn't ship real source data — <code>dbt seed</code> does</td><td>A dashboard's <code>config.yaml</code> can have fully placeholder source names and <code>dbt seed && dbt run</code> still works locally, because the seed CSV stands in for the real table. This is why the generator writes the seed CSV's header row but never its data rows — only a human can supply realistic sample values.</td></tr>
+  </table>
+  <div class="info green">Confirmed (was previously flagged unconfirmed): with <code>model-paths: ["../dashboards"]</code>, dbt's yaml parser walks into each dashboard's <code>config.yaml</code> (a non-dbt file) sitting in that same tree and <strong>silently ignores it — no parse error</strong>. Verified via real <code>dbt seed</code> output: "Found 3 models, 1 seed, 3 data tests, 1 source, 485 macros."</div>
 
   <p style="margin-top:18px;">For the full walkthrough of adding a new dashboard — not just the dbt step — see <a href="#pipeline-1">🪜 The Full Execution Pipeline</a> above, which covers every step from copying the template folder through deployment.</p>
 
@@ -1733,12 +1876,92 @@ dbt test  --profiles-dir .</code><button class="copy-btn" onclick="copyCode(this
     <tr><td><code>ModuleNotFoundError</code> on startup</td><td>Dependencies aren't installed, or your venv isn't active.</td><td><code>source .venv/bin/activate</code>, then <code>pip install -r backend/requirements.txt</code>.</td></tr>
     <tr><td>API starts but every endpoint 404s</td><td>Your dashboard folder either isn't under <code>backend/dashboards/</code>, starts with <code>_</code>, or is missing <code>config.yaml</code> — <code>load_all_dashboards()</code> silently skips anything that doesn't match.</td><td>Check <code>curl localhost:8000/dashboards</code> — if your <code>dashboard_id</code> isn't listed, fix the folder name/contents and restart.</td></tr>
     <tr><td>App crashes on startup with a Pydantic <code>ValidationError</code></td><td>Your <code>config.yaml</code> is missing a required field or used a value <code>config_schema.py</code> doesn't allow (e.g. a typo'd <code>op</code> or <code>refresh_tier</code>).</td><td>The error names the exact field — compare it against <a href="#config-schema">core/config_schema.py</a>'s class definitions, or the annotated <a href="#template-yaml">_template/config.yaml</a>.</td></tr>
-    <tr><td><code>duckdb.IOException</code> / "table does not exist"</td><td>No DuckDB mart exists yet at <code>DUCKDB_PATH</code> — nothing has been seeded into it.</td><td>Either run <code>dbt run</code> (once a real dbt project exists) or hand-seed it — see the <a href="#pipeline-5">Step 5 workaround</a>.</td></tr>
+    <tr><td><code>duckdb.IOException</code> / "table does not exist"</td><td>No DuckDB mart exists yet at <code>DUCKDB_PATH</code> — nothing has been seeded into it.</td><td>Either run <code>cd backend/dbt_project && dbt seed --profiles-dir . && dbt run --profiles-dir .</code> (see <a href="#run-dbt">Running dbt</a>) or hand-seed it — see the <a href="#pipeline-5">Step 5 workaround</a>.</td></tr>
     <tr><td>Redis errors in the console, but the API still responds</td><td>This is expected, not a bug — <code>cache_get</code>/<code>cache_set</code> fail open by design. The endpoint just always hits the database instead of the cache.</td><td>Ignore for local dev, or start Redis: <code>redis-server --daemonize yes --port 6379</code>.</td></tr>
     <tr><td>Queue response has real columns but some are always <code>null</code></td><td>Expected for any column still listed as a <code>TODO (NEEDS CLARIFICATION)</code> in the generated mart SQL — the business logic hasn't been filled in yet.</td><td>Fill in the TODO in <code>dbt/marts/mart_&lt;id&gt;_queue.sql</code> per <a href="#pipeline-4">Step 4</a>. Don't re-run the generator afterward without re-applying the logic.</td></tr>
     <tr><td>You filled in TODO business logic, then it's back to <code>NULL</code></td><td>You re-ran <code>generate_dbt_models.py</code> after editing the SQL by hand. The generator overwrites the file unconditionally — it never reads existing content first.</td><td>Re-apply the business logic. Going forward, avoid re-running the generator once TODOs are filled in unless you're prepared to redo them. See <a href="#sql-logic">Where New Dashboard SQL Logic Goes</a>.</td></tr>
     <tr><td>A filter query param does nothing</td><td>The <code>param</code> name in your request doesn't match any <code>param</code> declared under <code>api.filters</code> in <code>config.yaml</code> — unmatched params are silently ignored, not errored.</td><td>Check the exact <code>param</code> spelling in your config against the URL query string.</td></tr>
   </table>
+
+  <!-- ============ PERFORMANCE & REDIS TESTING ============ -->
+  <h2 id="perf-testing">🧪 Performance Testing &amp; Redis Inspection</h2>
+  <div class="info accent">Everything in this section is documented manual steps — <code>curl</code>/<code>redis-cli</code> commands you run by hand. No new test scripts were added for this; it's a reference for exercising the cache-aside path that already exists in <a href="#cache-client">core/cache/client.py</a>.</div>
+
+  <h3 style="margin-top:22px;font-size:16px;color:var(--text);">Comparing performance with vs. without Redis</h3>
+  <p>The fairest comparison is cold (MISS) vs. warm (HIT) on the same endpoint, then the same two calls with Redis stopped entirely:</p>
+  <pre><code># 1. Clear anything already cached for this dashboard
+redis-cli -u $REDIS_URL FLUSHDB
+
+# 2. First call - always a cache MISS, hits DuckDB/Athena directly
+curl -s -o /dev/null -w "miss: %{time_total}s\n" http://localhost:8000/api/ldc/case-queue
+
+# 3. Second call, same URL - cache HIT, served straight from Redis
+curl -s -o /dev/null -w "hit:  %{time_total}s\n" http://localhost:8000/api/ldc/case-queue</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  <p>To test the "without Redis" case, stop Redis (or point <code>REDIS_URL</code> at an unreachable host) and repeat steps 2–3. Because <code>cache_get</code>/<code>cache_set</code> fail open by design, neither call will error — but both should now take roughly the same (uncached) time, since every call falls through to the database. Compare that pair against the with-Redis hit timing above to see the actual benefit of caching for that endpoint.</p>
+  <div class="info warn">On DuckDB-backed local dev, the MISS/HIT gap is small since DuckDB is in-process and already fast — the difference is far more visible against Athena in a real environment, where each MISS is a network round trip plus a query-engine cold start. Don't read too much into a small local gap; re-test against <code>DATA_LAYER=athena</code> before drawing conclusions about production cache value.</div>
+
+  <h3 style="margin-top:22px;font-size:16px;color:var(--text);">Querying data directly in Redis</h3>
+  <p>Cache keys come from <a href="#cache-keys">core/cache/keys.py</a>'s <code>make_cache_key()</code> — format is <code>&lt;dashboard_id&gt;:&lt;endpoint&gt;[:filters-hash]</code>, and the value stored is a JSON string (not a Redis hash), so plain string commands work:</p>
+  <pre><code># List every cache key for one dashboard
+redis-cli -u $REDIS_URL KEYS "ldc:*"
+
+# Dump the raw cached JSON for one key
+redis-cli -u $REDIS_URL GET "ldc:case-queue"
+
+# Pretty-print it
+redis-cli -u $REDIS_URL GET "ldc:case-queue" | python3 -m json.tool
+
+# How many seconds until this key expires (driven by config_ttl/refresh_tier)
+redis-cli -u $REDIS_URL TTL "ldc:case-queue"
+
+# Confirm it's a plain string, not a hash/list
+redis-cli -u $REDIS_URL TYPE "ldc:case-queue"
+
+# Force the next request to be a MISS again, for a repeatable before/after test
+redis-cli -u $REDIS_URL DEL "ldc:case-queue"
+redis-cli -u $REDIS_URL FLUSHDB   # or nuke everything
+
+# Live-tail every command Redis receives while you hit endpoints in another terminal -
+# the most direct way to see a HIT/MISS happen, instead of inferring it from timing
+redis-cli -u $REDIS_URL MONITOR</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  <div class="info warn"><code>KEYS</code> is fine for local dev (a handful of dashboards, small keyspace) but is O(N) and blocks the Redis event loop — don't reach for it against a real production-sized Redis. <code>SCAN</code> is the non-blocking equivalent if this ever needs scripting against a larger keyspace.</div>
+
+  <h3 style="margin-top:22px;font-size:16px;color:var(--text);">Other backend testing tasks</h3>
+  <ul style="font-size:13px;line-height:1.7;color:var(--text);padding-left:20px;">
+    <li><strong>Full regression check:</strong> <code>python tests/test_framework_smoke.py</code> — see <a href="#smoke-test">Testing</a> above; this is the baseline before touching anything else.</li>
+    <li><strong>Testing one dashboard in isolation:</strong> reuse <code>seed_mart()</code>'s pattern from the smoke test, but point it at a different dashboard's table names and <code>config.yaml</code>, then only exercise that dashboard's endpoints — useful once a second dashboard exists alongside <code>ldc</code>.</li>
+    <li><strong>Verifying the dumb-passthrough contract on a new summary mart:</strong> after <code>dbt run</code>, run <code>SELECT * FROM mart_&lt;id&gt;_summary</code> directly against DuckDB/Athena, then <code>curl /api/&lt;id&gt;/summary</code> and diff the two — the rows must match exactly (modulo JSON key order). This is the fastest way to catch any regression back toward computing aggregations in Python, the exact bug fixed in <a href="#router-factory">router_factory.py</a> this session.</li>
+    <li><strong>Testing cache expiry:</strong> <code>GET</code> an endpoint, immediately check <code>TTL</code> on its key (or force it short with <code>redis-cli EXPIRE &lt;key&gt; 1</code>), wait it out, then <code>GET</code> the endpoint again and confirm a fresh MISS via <code>MONITOR</code> or a timing bump.</li>
+    <li><strong>Testing fail-open behavior on purpose:</strong> stop Redis mid-session and re-hit any endpoint — it must still return <code>200</code>, just slower and with a console warning, never a <code>500</code>. This is the same behavior the "Bug Found &amp; Fixed" filecard above exists because of — fail-open had been silently hiding a real serialization bug.</li>
+  </ul>
+
+  <!-- ============ CI/CD: GITLAB & TERRAFORM ============ -->
+  <h2 id="cicd-notes">🛠️ CI/CD: GitLab &amp; Terraform</h2>
+  <div class="info red">Documentation only — per explicit confirmation, <strong>no <code>.gitlab-ci.yml</code> and no Terraform (<code>.tf</code>) files have been created</strong> this round. This repo's only CI/CD today is <a href="#buildspec">deploy/buildspec.yml</a> (CodeBuild) and the unconfirmed <a href="#ghactions">deploy/github-actions-deploy.yml</a> (GitHub Actions); there is zero Terraform anywhere in the repo — <a href="#taskdef">task-definition.template.json</a> is a plain JSON template substituted via <code>envsubst</code>, not infrastructure-as-code. Everything below is design notes to ground a future scoping conversation, not a spec to build from.</div>
+
+  <h3 style="margin-top:22px;font-size:16px;color:var(--text);">What a GitLab CI pipeline would need to cover</h3>
+  <p>Mapped from the two existing files — <code>buildspec.yml</code>'s <code>install → build → post_build</code> phases plus <code>github-actions-deploy.yml</code>'s build/push/deploy steps, combined into one pipeline's stages:</p>
+  <ul style="font-size:13px;line-height:1.7;color:var(--text);padding-left:20px;">
+    <li><strong>Stages:</strong> <code>install</code> → <code>dbt</code> (<code>dbt run</code>/<code>dbt test --target athena</code>, working setup per <a href="#run-dbt">Running dbt</a>) → <code>cache-sync</code> (<code>python backend/cache_sync/sync.py</code>) → <code>build</code> (Docker image) → <code>deploy</code> (ECS).</li>
+    <li><strong>Secrets:</strong> <code>buildspec.yml</code> pulls <code>ATHENA_S3_STAGING</code>/<code>REDIS_URL</code> from AWS Secrets Manager via its <code>secrets-manager:</code> block. GitLab's equivalent is either masked/protected CI/CD variables (Settings → CI/CD → Variables) or a Vault/Secrets Manager integration if this org has one configured — unconfirmed which is preferred here.</li>
+    <li><strong>AWS auth:</strong> <code>github-actions-deploy.yml</code> uses <code>aws-actions/configure-aws-credentials</code> with <code>role-to-assume</code>. GitLab has no first-party equivalent action; the matching pattern is GitLab's native OIDC → AWS IAM role-assumption (no long-lived AWS keys stored in GitLab), or static <code>AWS_ACCESS_KEY_ID</code>/<code>AWS_SECRET_ACCESS_KEY</code> masked variables as a fallback. OIDC is the closer match to the GitHub Actions role-assumption pattern already in use.</li>
+    <li><strong>Runner requirements:</strong> building/pushing the Docker image needs a runner with Docker-in-Docker or Kaniko available. The existing Dockerfile build already requires <code>DOCKER_BUILDKIT=0</code> on the corporate network (per <a href="#dockerfile">deploy/Dockerfile</a>'s note) — unconfirmed whether that same BuildKit restriction applies to whatever GitLab runner this org would use.</li>
+    <li><strong>Per-dashboard scoping:</strong> now that dbt models live under <code>dashboards/&lt;id&gt;/dbt/</code> per dashboard, GitLab's <code>rules: changes:</code> could in principle scope a job to only the dashboard folder(s) that changed in a given push, instead of running <code>dbt run</code>/<code>dbt test</code> against everything every time (which is what both existing files do today). This would be a behavior change from current CI, not a like-for-like port — flagging as an open design question rather than assuming it's wanted.</li>
+    <li><strong>Deploy step:</strong> the same <code>aws ecs update-service --cluster fnma-reporting-cluster --service fnma-reporting-backend --force-new-deployment</code> call from <code>github-actions-deploy.yml</code> would run unchanged from a GitLab job — no GitLab-specific change needed there beyond the auth method above.</li>
+  </ul>
+
+  <h3 style="margin-top:22px;font-size:16px;color:var(--text);">What Terraform would need to provision</h3>
+  <p>There is currently zero infrastructure-as-code in this repo — everything below is inferred from what <code>task-definition.template.json</code>, <code>buildspec.yml</code>, and <code>github-actions-deploy.yml</code> already assume exists, not from any Terraform that's been written:</p>
+  <ul style="font-size:13px;line-height:1.7;color:var(--text);padding-left:20px;">
+    <li><strong>ECR repository</strong> for the backend image (referenced as <code>$ECR_URI</code>/<code>${ECR_IMAGE_URI}</code> — assumed to already exist, never defined as IaC here).</li>
+    <li><strong>ECS cluster</strong> <code>fnma-reporting-cluster</code>, <strong>ECS service</strong> <code>fnma-reporting-backend</code>, and the <strong>task definition</strong> itself — could be generated from <code>task-definition.template.json</code>'s shape (<code>aws_ecs_task_definition</code>) rather than hand-translated, to avoid the two drifting apart.</li>
+    <li><strong>IAM roles:</strong> the ECS execution role (<code>${ECS_EXECUTION_ROLE_ARN}</code>), the ECS task role (<code>${ECS_TASK_ROLE_ARN}</code>), and a separate CI deploy role — either the <code>github-actions-deploy</code> role referenced in <code>github-actions-deploy.yml</code>, or its GitLab OIDC equivalent above.</li>
+    <li><strong>Secrets Manager entries</strong> for <code>ATHENA_S3_STAGING</code> and <code>REDIS_URL</code> — referenced by name/ARN in <code>buildspec.yml</code> and <code>task-definition.template.json</code>, assumed to already exist; not yet defined as Terraform resources anywhere in this repo.</li>
+    <li><strong>Redis (ElastiCache or equivalent):</strong> the only Redis seen anywhere in this repo is the local <code>redis:6379</code> service in <code>docker-compose.yml</code> for dev. Whether production points <code>REDIS_URL</code> at an ElastiCache cluster, something else, or an already-existing shared instance is unconfirmed — this would need to be answered before writing the resource, not assumed.</li>
+    <li><strong>Networking:</strong> VPC/subnets/security groups for the Fargate service — unconfirmed whether this project provisions its own or reuses existing shared org infrastructure.</li>
+    <li><strong>CloudWatch log group</strong> <code>/ecs/fnma-reporting-backend</code> — referenced in <code>task-definition.template.json</code>'s <code>logConfiguration</code> but not defined as IaC anywhere yet.</li>
+    <li><strong>State management:</strong> a remote backend (commonly S3 + a DynamoDB lock table) and an environment-separation strategy (Terraform workspaces, or separate state per environment) — neither exists yet; this is a design decision to make before the first <code>.tf</code> file is written, not something to default silently.</li>
+  </ul>
 
   <!-- ============ OPEN ITEMS ============ -->
   <h2 id="open-items">🚩 Open Placeholders</h2>
@@ -1749,9 +1972,11 @@ dbt test  --profiles-dir .</code><button class="copy-btn" onclick="copyCode(this
     <tr><td>Cycle Time calculation (business-day rule)</td><td>Generated mart SQL, flagged TODO</td><td>Needs business rule</td></tr>
     <tr><td>SLA Status thresholds (Within SLA / At Risk / Breached)</td><td>Generated mart SQL, flagged TODO</td><td>Needs business rule</td></tr>
     <tr><td>Whether the live queue needs &lt;15-min refresh instead of ≤1hr</td><td><code>refresh_tier: near_real_time</code> in config</td><td>Same flag as the Excel project plan</td></tr>
-    <tr><td><code>dbt_project.yml</code>/<code>profiles.yml</code>/<code>sources.yml</code> not bundled</td><td>N/A — intentional</td><td>Carry over from existing backend README pattern</td></tr>
-    <tr><td>dbt <code>model-paths: ["dashboards"]</code> alongside each dashboard's non-dbt <code>config.yaml</code></td><td>Future <code>dbt_project.yml</code></td><td>Unconfirmed — may need a yaml-parser exclude pattern</td></tr>
+    <tr><td>Local dbt setup (<code>dbt_project.yml</code>/<code>profiles.yml</code>/<code>sources.yml</code>/seed CSVs)</td><td><code>backend/dbt_project/</code> + each dashboard's <code>dbt/</code> folder</td><td><span class="badge badge-verified">RESOLVED</span> — built and verified end-to-end this session, see <a href="#run-dbt">Running dbt</a></td></tr>
+    <tr><td>dbt <code>model-paths: ["../dashboards"]</code> alongside each dashboard's non-dbt <code>config.yaml</code></td><td><code>backend/dbt_project/dbt_project.yml</code></td><td><span class="badge badge-verified">RESOLVED</span> — confirmed silently ignored, no yaml-parser exclude needed</td></tr>
     <tr><td>CodeBuild/CodePipeline vs. GitHub Actions</td><td><code>deploy/buildspec.yml</code> vs. <code>deploy/github-actions-deploy.yml</code></td><td>Confirm which is real</td></tr>
+    <tr><td>GitLab CI pipeline (stages, secrets method, runner type, per-dashboard scoping)</td><td>N/A — doesn't exist yet</td><td>Documented design notes only, see <a href="#cicd-notes">CI/CD: GitLab &amp; Terraform</a></td></tr>
+    <tr><td>Terraform for ECS/ECR/IAM/Secrets/Redis/networking/state backend</td><td>N/A — zero IaC in repo today</td><td>Documented design notes only, see <a href="#cicd-notes">CI/CD: GitLab &amp; Terraform</a></td></tr>
   </table>
 
   <div style="height:60px;"></div>

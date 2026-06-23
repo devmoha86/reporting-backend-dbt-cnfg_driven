@@ -20,7 +20,7 @@ with counts as (
     group by request_status
 ),
 all_statuses as (
-    select column1 as request_status
+    select request_status
     from (values
         ('Draft'),
         ('Exception Review'),
@@ -28,7 +28,7 @@ all_statuses as (
         ('Completed'),
         ('Canceled'),
         ('Rejected')
-    ) as t
+    ) as t(request_status)
 )
 select
     s.request_status,
