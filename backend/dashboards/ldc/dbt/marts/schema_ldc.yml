@@ -15,7 +15,7 @@ models:
                 - "Pending Reclass"
                 - "Completed"
                 - "Canceled"
-                - "Rejected"
+                - "Rejec"
       - name: sub_status
       - name: submitter_name
       - name: submitter_group

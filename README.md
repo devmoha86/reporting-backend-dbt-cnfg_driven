@@ -181,30 +181,113 @@ substitute, not LocalStack).
 
 ### Running dbt
 
-`dbt run`/`dbt test`/`dbt seed` now actually work locally — verified end-to-end
-in this session, not just scaffolded. There's one shared dbt project at
-`backend/dbt_project/` (`dbt_project.yml` + `profiles.yml`, no secrets, both
-env_var()-driven), and `scripts/generate_dbt_models.py` produces every
-dashboard-specific dbt file **inside that dashboard's own folder**:
-`dbt/staging/<model>.sql`, `dbt/staging/sources_<id>.yml`, `dbt/marts/*.sql`,
-`dbt/marts/schema_<id>.yml`, and `dbt/seeds/seed_<id>_raw.csv`.
+`dbt seed` / `dbt run` / `dbt test` work in three modes: local DuckDB,
+Dockerized DuckDB, and Athena (CI/prod). One shared dbt project lives at
+`backend/dbt_project/` (`dbt_project.yml` + `profiles.yml`, both env-driven).
+Each dashboard keeps its own dbt files under `backend/dashboards/<id>/dbt/`.
+
+#### 1) Local DuckDB flow (recommended while iterating)
+
+From `backend/dbt_project/`:
 
 ```
-cd backend/dbt_project
-dbt seed --profiles-dir .
-dbt run  --profiles-dir .
-dbt test --profiles-dir .
+dbt deps --profiles-dir .
+dbt seed --profiles-dir . --target duckdb --full-refresh
+dbt run  --profiles-dir . --target duckdb --full-refresh
+dbt test --profiles-dir . --target duckdb
 ```
-`dbt_project.yml`'s `model-paths`/`seed-paths` both point at `../dashboards`, so
-dbt discovers every dashboard's SQL/CSV without any of it living next to
-`dbt_project.yml` itself. The default target is `duckdb`, writing to
-`backend/fnma.duckdb` (override with `DUCKDB_PATH` if running from a different
-working directory than the API) — matches `deploy/buildspec.yml`'s existing
-`cd backend/dbt_project` assumption, so no CI changes were needed for the local
-path to line up with it. `dbt run --target athena --profiles-dir .` is the
-CI/prod path, same as `buildspec.yml` already runs; that target needs real AWS
-credentials and the `dbt-athena-community` adapter (now uncommented in
-`requirements.txt`).
+
+What each step does:
+
+- `dbt seed`: loads CSVs from `backend/dashboards/*/dbt/seeds/` into DuckDB tables.
+- `dbt run`: builds staging + mart models in dependency order.
+- `dbt test`: executes tests from `schema_<id>.yml` against built model tables.
+
+For the LDC dashboard specifically:
+
+- seed file: `backend/dashboards/ldc/dbt/seeds/seed_ldc_raw.csv`
+- staging model: `backend/dashboards/ldc/dbt/staging/stg_ldc_case_requests.sql`
+- mart under test: `backend/dashboards/ldc/dbt/marts/mart_ldc_case_queue.sql`
+- tests config: `backend/dashboards/ldc/dbt/marts/schema_ldc.yml`
+
+#### 2) Local DuckDB flow (LDC only, faster loop)
+
+From `backend/dbt_project/`:
+
+```
+dbt seed --profiles-dir . --target duckdb --full-refresh --select seed_ldc_raw
+dbt run  --profiles-dir . --target duckdb --full-refresh --select stg_ldc_case_requests mart_ldc_case_queue mart_ldc_status_summary
+dbt test --profiles-dir . --target duckdb --select mart_ldc_case_queue mart_ldc_status_summary
+```
+
+This avoids rebuilding unrelated dashboards.
+
+#### 3) Docker flow (same dbt commands inside container)
+
+Because `deploy/docker-compose.yml` does not mount the repo as a bind volume,
+container files are baked at image-build time. If you changed seed CSV/SQL on
+host, rebuild before running dbt in Docker.
+
+From repo root:
+
+```
+docker compose -f deploy/docker-compose.yml up --build -d
+docker compose -f deploy/docker-compose.yml exec backend sh -lc "cd /app/dbt_project && dbt seed --profiles-dir . --target duckdb --full-refresh && dbt run --profiles-dir . --target duckdb --full-refresh && dbt test --profiles-dir . --target duckdb"
+```
+
+#### 4) Athena flow (CI/prod)
+
+From `backend/dbt_project/`:
+
+```
+dbt run  --profiles-dir . --target athena
+dbt test --profiles-dir . --target athena
+```
+
+Requirements:
+
+- real AWS credentials
+- `ATHENA_S3_STAGING`, `AWS_REGION` (optional default exists), and `ATHENA_SCHEMA`
+- `dbt-athena-community` installed
+
+#### Troubleshooting dbt (common failures and false positives)
+
+1. `dbt test` passes even after changing a seed row value
+
+- Cause: tests run on built marts, not directly on CSV.
+- Fix: rerun `seed` and `run` before `test`, ideally with `--full-refresh`.
+- Verify bad value reached mart:
+
+```
+dbt run-operation run_query --args '{sql: "select request_status, count(*) from mart_ldc_case_queue group by 1 order by 1"}' --profiles-dir . --target duckdb
+```
+
+2. `dbt test --select ldc` returns success too quickly / tests not actually selected
+
+- Cause: selector does not match model/test names.
+- Fix: select by model names or path:
+
+```
+dbt ls --resource-type test --profiles-dir . --target duckdb
+dbt test --profiles-dir . --target duckdb --select mart_ldc_case_queue
+```
+
+3. Docker run does not reflect edited CSV/model files
+
+- Cause: image is stale; compose file has no bind mount.
+- Fix: `docker compose ... up --build -d` (or rebuild image) before dbt commands.
+
+4. `accepted_values` does not fail for a typo like `Canceleds`
+
+- Check that test is defined under the correct column in
+  `backend/dashboards/ldc/dbt/marts/schema_ldc.yml`.
+- Ensure typo value exists in `mart_ldc_case_queue` (not only in CSV).
+- Re-run in order: `seed -> run -> test`.
+
+5. Build stage errors in Docker (`no build stage in current context`)
+
+- Cause: missing `FROM` in `deploy/Dockerfile`.
+- Fix: use a valid base image (already fixed in this repo).
 
 <details><summary>Two things worth knowing about how this actually works</summary>
 

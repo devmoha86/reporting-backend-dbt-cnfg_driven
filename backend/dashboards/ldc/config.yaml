@@ -35,7 +35,7 @@ mart:
   summary_model_name: mart_ldc_status_summary
   primary_key: request_no
   status_field: request_status
-  status_values: ["Draft", "Exception Review", "Pending Reclass", "Completed", "Canceled", "Rejected"]
+  status_values: ["Draft", "Exception Review", "Pending Reclass", "Completed", "Canceled", "Rejec"]
   derived_columns:
     - {name: queue_age,   needs_clarification: true, note: "Elapsed-time calc TBD - calendar vs business hours"}
     - {name: cycle_time,  needs_clarification: true, note: "Business-day calc TBD; only meaningful once Completion Date is set"}

@@ -27,7 +27,7 @@ all_statuses as (
         ('Pending Reclass'),
         ('Completed'),
         ('Canceled'),
-        ('Rejected')
+        ('Rejec')
     ) as t(request_status)
 )
 select
