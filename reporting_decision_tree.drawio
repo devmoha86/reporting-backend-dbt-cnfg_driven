@@ -1,0 +1,85 @@
+<mxfile host="app.diagrams.net" modified="2026-06-25T00:00:00.000Z" agent="Claude" version="24.0.0" type="device">
+  <diagram name="Reporting Decision Tree" id="reporting-decision-tree">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Reporting Access — Decision Tree" style="text;html=1;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1B2733;" vertex="1" parent="1">
+          <mxGeometry x="380" y="10" width="600" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Start -->
+        <mxCell id="n1" value="Reporting Request" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1B2733;strokeColor=none;fontColor=#FFFFFF;fontSize=15;fontStyle=1;arcSize=14;" vertex="1" parent="1">
+          <mxGeometry x="460" y="60" width="220" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- User Type decision -->
+        <mxCell id="n2" value="User Type?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF4DC;strokeColor=#D99A2B;strokeWidth=2;fontColor=#5C3D05;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="480" y="180" width="180" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- External -> Custom Solution -->
+        <mxCell id="n3" value="&lt;b&gt;Custom Solution&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Angular + FastAPI (SOLV)&lt;br&gt;all external users&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0F6F6A;strokeColor=none;fontColor=#FFFFFF;fontSize=13;align=center;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="80" y="360" width="260" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- SOX decision -->
+        <mxCell id="n4" value="SOX Controlled Report?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF4DC;strokeColor=#D99A2B;strokeWidth=2;fontColor=#5C3D05;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="340" width="200" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- SOX Yes -> Custom Solution (2nd instance) -->
+        <mxCell id="n5" value="&lt;b&gt;Custom Solution&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Angular + FastAPI (SOLV)&lt;br&gt;SOX-controlled, internal&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0F6F6A;strokeColor=none;fontColor=#FFFFFF;fontSize=13;align=center;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="520" width="260" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Reporting Need decision -->
+        <mxCell id="n6" value="Reporting Need?&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;(non-SOX, internal)&lt;/font&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF4DC;strokeColor=#D99A2B;strokeWidth=2;fontColor=#5C3D05;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="900" y="520" width="200" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- NLQ -->
+        <mxCell id="n7" value="&lt;b&gt;NLQ&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Natural Language Query&lt;br&gt;ad-hoc / read-only&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#5B3F96;strokeColor=none;fontColor=#FFFFFF;fontSize=13;align=center;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="860" y="700" width="220" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Tableau -->
+        <mxCell id="n8" value="&lt;b&gt;Tableau&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Self-Serve&lt;br&gt;via SDL exposed data models&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1D6E3C;strokeColor=none;fontColor=#FFFFFF;fontSize=13;align=center;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="700" width="240" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Edges -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#5B6472;strokeWidth=2;endArrow=block;" edge="1" parent="1" source="n1" target="n2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e2" value="External" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#5B6472;strokeWidth=2;endArrow=block;fontColor=#3B4452;fontStyle=1;fontSize=12;exitX=0.25;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="n2" target="n3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e3" value="Internal" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#5B6472;strokeWidth=2;endArrow=block;fontColor=#3B4452;fontStyle=1;fontSize=12;exitX=0.85;exitY=0.85;exitDx=0;exitDy=0;" edge="1" parent="1" source="n2" target="n4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e4" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#5B6472;strokeWidth=2;endArrow=block;fontColor=#0F6F6A;fontStyle=1;fontSize=12;" edge="1" parent="1" source="n4" target="n5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e5" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#5B6472;strokeWidth=2;endArrow=block;fontColor=#3B4452;fontStyle=1;fontSize=12;" edge="1" parent="1" source="n4" target="n6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e6" value="Ad-hoc / Read-only" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#5B6472;strokeWidth=2;endArrow=block;fontColor=#5B3F96;fontStyle=1;fontSize=12;" edge="1" parent="1" source="n6" target="n7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e7" value="Self-Serve Analytics" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#5B6472;strokeWidth=2;endArrow=block;fontColor=#1D6E3C;fontStyle=1;fontSize=12;" edge="1" parent="1" source="n6" target="n8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
