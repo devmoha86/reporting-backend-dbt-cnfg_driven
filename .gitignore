@@ -14,7 +14,7 @@ env/
 # --- Local DuckDB data (regenerated via dbt seed/run or hand-seeding — never committed) ---
 *.duckdb
 *.duckdb.wal
-backend/fnma.duckdb
+backend/fnma.duckdb*
 
 # --- dbt ---
 backend/dbt_project/target/

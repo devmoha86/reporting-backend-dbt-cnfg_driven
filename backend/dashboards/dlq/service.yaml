@@ -1,0 +1,12 @@
+# Service-level metadata for the "dlq" service. See dashboards/ldc/service.yaml
+# for the full explanation of what this file is and isn't responsible for - the
+# short version: it's the explicit, config-driven label for this folder grouping,
+# cross-checked by config_loader.py against the folder name and against every
+# report config.yaml nested under it.
+#
+#   dashboards/dlq/service.yaml
+#   dashboards/dlq/reported-data/config.yaml   <- existing report
+
+service_id: dlq
+display_name: "Delinquency (DLQ)"
+description: "Delinquency status/action/reason reporting, by activity period."

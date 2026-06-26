@@ -1,0 +1,24 @@
+# Template service.yaml. Folders starting with "_" are ignored by the framework
+# entirely (config_loader.py skips them at both the service and report level),
+# so this whole _template/ tree is never registered as a live service/report.
+#
+# Steps to add a brand-new SERVICE (a new source system / business owner) with
+# its first report, using this template:
+#   1. cp -r dashboards/_template dashboards/<your_service_id>
+#   2. mv dashboards/<your_service_id>/_template_report dashboards/<your_service_id>/<your_report_id>
+#   3. Fill in dashboards/<your_service_id>/service.yaml (this file) - service_id
+#      must equal <your_service_id>, the folder name.
+#   4. Fill in dashboards/<your_service_id>/<your_report_id>/config.yaml - service_id
+#      must equal <your_service_id>, report_id must equal <your_report_id>.
+#   5. python scripts/generate_dbt_models.py dashboards/<your_service_id>/<your_report_id>/config.yaml
+#   6. Fill in the TODOs in the generated SQL, then `dbt run`.
+#   7. Restart the API - the new report appears automatically, no Python changes.
+#
+# To add a SECOND report under an EXISTING service (e.g. a new dlq report
+# alongside reported-data), skip steps 1-3 and start at step 2, copying an
+# existing report folder (e.g. dashboards/dlq/reported-data) instead of this
+# template, then continue from step 4 with the existing service_id.
+
+service_id: my_new_service
+display_name: "My New Service"
+description: "One-line description of the source system / business area this service groups reports for."

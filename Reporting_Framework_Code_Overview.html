@@ -118,8 +118,9 @@
     <a href="#main">main.py</a>
 
     <div class="section-label">Dashboard Configs</div>
-    <a href="#template-yaml">dashboards/_template/config.yaml</a>
-    <a href="#ldc-yaml">dashboards/ldc/config.yaml</a>
+    <a href="#template-yaml">dashboards/_template/.../config.yaml</a>
+    <a href="#ldc-yaml">dashboards/ldc/case-management/config.yaml</a>
+    <a href="#dlq-yaml">dashboards/dlq/reported-data/config.yaml</a>
 
     <div class="section-label">dbt Generation</div>
     <a href="#generator">scripts/generate_dbt_models.py</a>
@@ -137,6 +138,7 @@
 
     <div class="section-label">Testing</div>
     <a href="#smoke-test">tests/test_framework_smoke.py</a>
+    <a href="#dlq-smoke-test">tests/test_dlq_smoke.py</a>
     <a href="#bug-found">Bug Found &amp; Fixed</a>
 
     <div class="section-label">Local Run</div>
@@ -169,6 +171,7 @@
     <h2>🎯 What This Solves</h2>
     <p>Each of the 18 reporting dashboards needs the same shape of backend: a filtered/paginated queue table, a clickable status-summary chart, dropdown filter lookups, and a CSV export — all cached in Redis, all reading from DuckDB locally / Athena in production. Hand-writing that per dashboard means 18× the FastAPI endpoints, cache-key logic, and dbt boilerplate.</p>
     <p>This framework turns each dashboard into a <strong>YAML config</strong>. One generic router factory reads the config and produces the live endpoints; one generator script reads the config and scaffolds the dbt models. Adding dashboard #2 means writing a config file, not new Python.</p>
+    <div class="info green"><strong>Proven with a second dashboard:</strong> <code>ldc</code> (queue + summary chart + filters + export) and <code>dlq</code> — Delinquency Reported Data (queue + filters + export, deliberately <strong>no</strong> summary chart) — now both run from the same generator and the same shared <code>core/</code> code, zero per-dashboard Python written for either. <code>dlq</code> exists specifically to prove the framework flexes to a dashboard shape that doesn't need every endpoint — see the <code>api.queue_enabled</code>/<code>api.summary_enabled</code> flags below.</div>
   </section>
 
   <section id="prerequisites">
@@ -188,45 +191,64 @@
 
   <section id="directory">
     <h2>📁 Directory Structure</h2>
-    <p>Every dashboard's code lives in <strong>one self-contained folder</strong>: <code>backend/dashboards/&lt;dashboard_id&gt;/</code>. That folder holds its config, its generated staging SQL, its generated mart SQL, and its schema tests — nothing belonging to a dashboard lives anywhere else. Two developers building dashboard #5 and dashboard #6 at the same time touch two different folders and nothing in <code>core/</code>, so there's nothing to merge-conflict over.</p>
+    <p>Dashboards are organized two levels deep: <code>backend/dashboards/&lt;service_id&gt;/&lt;report_id&gt;/</code>. A <strong>service</strong> (e.g. <code>ldc</code>, <code>dlq</code>) is a grouping of one or more <strong>reports</strong> that share a business owner/source system — every service folder needs exactly one <code>service.yaml</code>. A <strong>report</strong> is what used to be called a "dashboard": one self-contained folder holding its <code>config.yaml</code>, its generated staging SQL, its generated mart SQL, and its schema tests — nothing belonging to a report lives anywhere else. <code>dashboard_id</code> is still the framework's per-report unique identifier (routes, cache keys, dbt model names) and didn't need to change when this split was introduced; <code>service_id</code>/<code>report_id</code> are separate fields used only to validate folder placement. Two developers building report #5 and report #6 at the same time touch two different folders and nothing in <code>core/</code>, so there's nothing to merge-conflict over.</p>
     <div class="tree">reporting-dashboard-framework/
 ├── README.md
 ├── backend/
-│   ├── <span class="accent">main.py</span>                     <span style="color:var(--dim)"># scans dashboards/*/config.yaml, registers each router</span>
+│   ├── <span class="accent">main.py</span>                     <span style="color:var(--dim)"># scans dashboards/&lt;service&gt;/&lt;report&gt;/config.yaml, registers each router</span>
 │   ├── requirements.txt
 │   ├── core/                            <span style="color:var(--dim)"># shared framework — a dashboard dev never edits this</span>
-│   │   ├── config_schema.py          <span style="color:var(--dim)"># pydantic contract every dashboard's config.yaml must satisfy</span>
-│   │   ├── config_loader.py          <span style="color:var(--dim)"># discovers + validates each dashboards/&lt;id&gt;/config.yaml</span>
+│   │   ├── config_schema.py          <span style="color:var(--dim)"># pydantic contract for service.yaml AND every report's config.yaml</span>
+│   │   ├── config_loader.py          <span style="color:var(--dim)"># two-level walk: discovers + validates service.yaml + config.yaml</span>
 │   │   ├── db/connection.py           <span style="color:var(--green)"># THE swap point: duckdb / athena</span>
 │   │   ├── cache/client.py              <span style="color:var(--dim)"># Redis fail-open get/set</span>
 │   │   ├── cache/keys.py                 <span style="color:var(--dim)"># deterministic cache key builder</span>
 │   │   ├── filters.py                     <span style="color:var(--dim)"># generic WHERE-clause builder</span>
-│   │   └── router_factory.py               <span class="accent"># config -> live FastAPI router</span>
-│   ├── dbt_project/                     <span style="color:var(--green)"># NEW — the ONE shared dbt project file pair, verified working</span>
-│   │   ├── dbt_project.yml             <span style="color:var(--dim)"># model-paths/seed-paths -> ../dashboards</span>
+│   │   └── router_factory.py               <span class="accent"># config -> live FastAPI router, incl. default-latest filter resolution</span>
+│   ├── dbt_project/                     <span style="color:var(--green)"># the ONE shared dbt project file pair, verified working</span>
+│   │   ├── dbt_project.yml             <span style="color:var(--dim)"># model-paths/seed-paths -> ../dashboards (recurses through both levels)</span>
 │   │   └── profiles.yml                  <span style="color:var(--dim)"># duckdb (default, local) + athena (CI/prod) targets, env_var()-driven, no secrets</span>
-│   ├── dashboards/                      <span style="color:var(--accent)"># one self-contained folder per dashboard</span>
-│   │   ├── _template/                 <span style="color:var(--dim)"># copy this folder to start a new dashboard (ignored: "_" prefix)</span>
-│   │   │   └── config.yaml
-│   │   └── ldc/                        <span style="color:var(--green)"># dashboard #1, fully configured</span>
-│   │       ├── config.yaml             <span style="color:var(--dim)"># <- you write this</span>
-│   │       └── dbt/
-│   │           ├── staging/
-│   │           │   ├── stg_ldc_case_requests.sql        <span style="color:var(--dim)"># <- generated</span>
-│   │           │   └── sources_ldc.yml                    <span style="color:var(--green)"># <- NEW, generated; resolves source() to the seed (duckdb) or real table (athena)</span>
-│   │           ├── marts/
-│   │           │   ├── mart_ldc_case_queue.sql                <span style="color:var(--warn)"># <- generated SHELL; TODO business logic goes here</span>
-│   │           │   ├── mart_ldc_status_summary.sql            <span style="color:var(--warn)"># <- generated DEFAULT; this dashboard's entire chart-aggregation logic</span>
-│   │           │   └── schema_ldc.yml                          <span style="color:var(--dim)"># <- generated</span>
-│   │           └── seeds/
-│   │               └── seed_ldc_raw.csv                          <span style="color:var(--green)"># <- NEW, generated header only; sample rows filled in by hand, loaded via `dbt seed`</span>
+│   ├── dashboards/                      <span style="color:var(--accent)"># &lt;service_id&gt;/&lt;report_id&gt;/ — two levels deep</span>
+│   │   ├── _template/                 <span style="color:var(--dim)"># copy this whole tree to start a new service (ignored: "_" prefix)</span>
+│   │   │   ├── service.yaml          <span style="color:var(--purple)"># NEW — annotated service-level template</span>
+│   │   │   └── _template_report/
+│   │   │       └── config.yaml         <span style="color:var(--dim)"># annotated report-level template</span>
+│   │   ├── ldc/                        <span style="color:var(--green)"># service #1 — Loan Data Correction</span>
+│   │   │   ├── service.yaml          <span style="color:var(--purple)"># NEW — service_id: ldc, must match this folder name</span>
+│   │   │   └── case-management/        <span style="color:var(--green)"># report #1, fully configured</span>
+│   │   │       ├── config.yaml         <span style="color:var(--dim)"># <- you write this; service_id: ldc, report_id: case-management</span>
+│   │   │       └── dbt/
+│   │   │           ├── staging/
+│   │   │           │   ├── stg_ldc_case_requests.sql        <span style="color:var(--dim)"># <- generated</span>
+│   │   │           │   └── sources_ldc.yml                    <span style="color:var(--green)"># <- generated; resolves source() to the seed (duckdb) or real table (athena)</span>
+│   │   │           ├── marts/
+│   │   │           │   ├── mart_ldc_case_queue.sql                <span style="color:var(--warn)"># <- generated SHELL; TODO business logic goes here</span>
+│   │   │           │   ├── mart_ldc_status_summary.sql            <span style="color:var(--warn)"># <- generated DEFAULT; this report's entire chart-aggregation logic</span>
+│   │   │           │   └── schema_ldc.yml                          <span style="color:var(--dim)"># <- generated</span>
+│   │   │           └── seeds/
+│   │   │               └── seed_ldc_raw.csv                          <span style="color:var(--green)"># <- generated header only; sample rows filled in by hand, loaded via `dbt seed`</span>
+│   │   └── dlq/                        <span style="color:var(--purple)"># service #2 — Delinquency, deliberately summary-less report</span>
+│   │       ├── service.yaml          <span style="color:var(--purple)"># NEW — service_id: dlq, must match this folder name</span>
+│   │       └── reported-data/          <span style="color:var(--purple)"># report #1 under dlq (mart.summary_model_name: null, api.summary_enabled: false)</span>
+│   │           ├── config.yaml         <span style="color:var(--dim)"># <- you write this; service_id: dlq, report_id: reported-data</span>
+│   │           └── dbt/
+│   │               ├── staging/
+│   │               │   ├── stg_dlq_reported_data.sql        <span style="color:var(--dim)"># <- generated</span>
+│   │               │   └── sources_dlq.yml                    <span style="color:var(--dim)"># <- generated</span>
+│   │               ├── marts/
+│   │               │   ├── mart_dlq_reported_data.sql              <span style="color:var(--warn)"># <- generated, then HAND-EDITED: trailing 24-month window WHERE filter</span>
+│   │               │   └── schema_dlq.yml                          <span style="color:var(--warn)"># <- generated, then HAND-EDITED: dropped `unique` test (grain is loan+period, not loan alone)</span>
+│   │               └── seeds/
+│   │                   └── seed_dlq_raw.csv                          <span style="color:var(--green)"># <- 100 rows x 26 activity periods, hand-filled for real dbt seed/run testing</span>
 │   ├── scripts/generate_dbt_models.py        <span style="color:var(--dim)"># config.yaml -> dbt/staging + dbt/marts + dbt/seeds SQL/CSV + schema.yml + sources.yml</span>
 │   └── cache_sync/sync.py                     <span style="color:var(--dim)"># config-driven cache-sync job</span>
 ├── deploy/
 │   ├── Dockerfile, docker-compose.yml, task-definition.template.json,
 │   │   buildspec.yml, github-actions-deploy.yml   <span style="color:var(--dim)"># dashboard-agnostic</span>
 └── tests/
-    └── test_framework_smoke.py            <span style="color:var(--dim)"># the test actually run to verify all of this</span></div>
+    ├── test_framework_smoke.py            <span style="color:var(--dim)"># ldc end-to-end smoke test</span>
+    └── test_dlq_smoke.py                    <span style="color:var(--green)"># dlq end-to-end smoke test, incl. asserting /summary is genuinely absent (404)</span></div>
+    <div class="info accent"><strong>Two-level folder convention:</strong> <code>dashboards/&lt;service_id&gt;/service.yaml</code> plus <code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml</code>. <code>config_loader.py</code> cross-checks <code>service_id</code>/<code>report_id</code> declared inside each YAML against the actual folder names at load time and fails loudly on any mismatch — see <a href="#config-loader">core/config_loader.py</a>. Every service folder must have a <code>service.yaml</code>, even if it groups only one report.</div>
   </section>
 
   <!-- ============ WHERE NEW SQL LOGIC GOES ============ -->
@@ -234,19 +256,20 @@
     <h2>📍 Where New Dashboard SQL Logic Goes</h2>
     <div class="info accent" style="font-size:14px;">
       <strong>The one rule that matters most in this whole document:</strong> dashboard-specific business logic — SLA thresholds, cycle-time math, custom rollups, and chart aggregations — is written in dbt SQL, never in the shared Python framework code. There are exactly two places it goes:<br><br>
-      1. <code>backend/dashboards/&lt;dashboard_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_queue.sql</code>, inside the <code>TODO</code> lines that <code>generate_dbt_models.py</code> stamps in for every column you flagged <code>needs_clarification: true</code> in your <code>config.yaml</code>.<br>
-      2. <code>backend/dashboards/&lt;dashboard_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_summary.sql</code>, which is the <em>entire</em> definition of that dashboard's summary chart. <code>router_factory.py</code> never aggregates anything — it only does <code>SELECT * FROM</code> this model. Whatever shape your chart needs (status counts, sums, a trend line) is written here, in SQL.<br><br>
-      A third spot — not business logic, just sample data — is <code>dashboards/&lt;id&gt;/dbt/seeds/seed_&lt;id&gt;_raw.csv</code>: the generator only writes the header row, a human fills in realistic sample rows so <code>dbt seed &amp;&amp; dbt run</code> actually produces data locally.
+      1. <code>backend/dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_queue.sql</code>, inside the <code>TODO</code> lines that <code>generate_dbt_models.py</code> stamps in for every column you flagged <code>needs_clarification: true</code> in your <code>config.yaml</code>.<br>
+      2. <code>backend/dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_summary.sql</code>, which is the <em>entire</em> definition of that dashboard's summary chart. <code>router_factory.py</code> never aggregates anything — it only does <code>SELECT * FROM</code> this model, and only if <code>mart.summary_model_name</code> is set at all (it's <code>null</code> for <code>dlq</code> — that mart is never even generated). Whatever shape your chart needs (status counts, sums, a trend line) is written here, in SQL.<br><br>
+      A second, non-derived-column example of business logic living in the mart SQL: <code>dlq</code>'s trailing-24-month window filter in <code>mart_dlq_reported_data.sql</code> — a hand-added <code>WHERE</code>/CTE that keeps only the 24 calendar months ending at the latest <code>activity_period</code> actually present in the data. It's a straightforward filter, not flagged <code>needs_clarification</code>, but it's still hand-written SQL the generator doesn't (and shouldn't) know how to produce — same principle as the TODO blocks, just without the TODO marker.<br><br>
+      A third spot — not business logic, just sample data — is <code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/seeds/seed_&lt;id&gt;_raw.csv</code>: the generator only writes the header row, a human fills in realistic sample rows so <code>dbt seed &amp;&amp; dbt run</code> actually produces data locally. <code>dlq</code>'s seed has 100 rows × 26 activity periods (2,600 rows) specifically so the 24-month window above has both included and excluded periods to actually exercise — not just a few placeholder rows.
     </div>
     <table>
       <tr><th>File</th><th>Who edits it</th><th>What goes there</th></tr>
-      <tr><td><code>dashboards/&lt;id&gt;/config.yaml</code></td><td>You, by hand</td><td>Source table, staging columns, primary key, status values, filters, API shape — declarative, no SQL.</td></tr>
-      <tr><td><code>dashboards/&lt;id&gt;/dbt/staging/stg_&lt;id&gt;.sql</code></td><td><strong>Generator only — never hand-edit</strong></td><td>Pure column casting. If a column is wrong, fix <code>config.yaml</code> and re-run the generator; don't patch this file directly, the next re-run silently overwrites it.</td></tr>
-      <tr><td><code>dashboards/&lt;id&gt;/dbt/staging/sources_&lt;id&gt;.yml</code></td><td><strong>Generator only — never hand-edit</strong></td><td>Resolves the staging model's <code>{{ source(...) }}</code> reference to two different physical tables depending on dbt target: the seed CSV below for <code>duckdb</code>, the real <code>source.database</code>/<code>source.table</code> from <code>config.yaml</code> for <code>athena</code>. Update <code>config.yaml</code> and re-run the generator once the real source names land — don't hand-edit this file.</td></tr>
-      <tr><td><code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_queue.sql</code></td><td><strong>You, inside the TODO blocks only</strong></td><td>This is it. Every line that starts <code>, NULL AS &lt;col&gt; -- TODO (NEEDS CLARIFICATION): ...</code> is a placeholder for real SQL — replace the <code>NULL</code> with the actual expression. The plain column list above the TODO block is generator output; leave it alone.</td></tr>
-      <tr><td><code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_summary.sql</code></td><td><strong>You, freely — this is the other place business logic goes</strong></td><td>The generator writes a zero-filled status-count default here, but this file is the <em>entire</em> business logic for that dashboard's summary chart. The API layer (<code>router_factory.get_summary()</code>) does nothing but <code>SELECT * FROM</code> this model and return the rows — no GROUP BY, no chart-shaping, no aggregation in Python, ever. If your dashboard's summary chart is a sum-by-category, a trend line, or a multi-series rollup instead of a status count, rewrite this file's query to produce that shape directly. Re-running the generator overwrites it back to the default, same caveat as the queue mart's TODO blocks.</td></tr>
-      <tr><td><code>dashboards/&lt;id&gt;/dbt/marts/schema_&lt;id&gt;.yml</code></td><td><strong>Generator only</strong></td><td>dbt tests (not_null/unique on the primary key, accepted_values on the status field) plus a documented entry for every other column.</td></tr>
-      <tr><td><code>dashboards/&lt;id&gt;/dbt/seeds/seed_&lt;id&gt;_raw.csv</code></td><td><strong>Generator writes the header; you fill in the rows</strong></td><td>Sample rows matching the staging model's raw <code>source_col</code> names — loaded by <code>dbt seed</code> into the table <code>sources_&lt;id&gt;.yml</code> points the <code>duckdb</code> target at. The generator can't invent business data, so re-running it after you've added rows wipes them back to header-only (back them up first).</td></tr>
+      <tr><td><code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml</code></td><td>You, by hand</td><td>Source table, staging columns, primary key, status values, filters, API shape — declarative, no SQL.</td></tr>
+      <tr><td><code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/staging/stg_&lt;id&gt;.sql</code></td><td><strong>Generator only — never hand-edit</strong></td><td>Pure column casting. If a column is wrong, fix <code>config.yaml</code> and re-run the generator; don't patch this file directly, the next re-run silently overwrites it.</td></tr>
+      <tr><td><code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/staging/sources_&lt;id&gt;.yml</code></td><td><strong>Generator only — never hand-edit</strong></td><td>Resolves the staging model's <code>{{ source(...) }}</code> reference to two different physical tables depending on dbt target: the seed CSV below for <code>duckdb</code>, the real <code>source.database</code>/<code>source.table</code> from <code>config.yaml</code> for <code>athena</code>. Update <code>config.yaml</code> and re-run the generator once the real source names land — don't hand-edit this file.</td></tr>
+      <tr><td><code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/mart_&lt;id&gt;_queue.sql</code></td><td><strong>You, inside the TODO blocks only</strong></td><td>This is it. Every line that starts <code>, NULL AS &lt;col&gt; -- TODO (NEEDS CLARIFICATION): ...</code> is a placeholder for real SQL — replace the <code>NULL</code> with the actual expression. The plain column list above the TODO block is generator output; leave it alone.</td></tr>
+      <tr><td><code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/mart_&lt;id&gt;_summary.sql</code></td><td><strong>You, freely — this is the other place business logic goes</strong></td><td>The generator writes a zero-filled status-count default here, but this file is the <em>entire</em> business logic for that dashboard's summary chart. The API layer (<code>router_factory.get_summary()</code>) does nothing but <code>SELECT * FROM</code> this model and return the rows — no GROUP BY, no chart-shaping, no aggregation in Python, ever. If your dashboard's summary chart is a sum-by-category, a trend line, or a multi-series rollup instead of a status count, rewrite this file's query to produce that shape directly. Re-running the generator overwrites it back to the default, same caveat as the queue mart's TODO blocks.</td></tr>
+      <tr><td><code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/schema_&lt;id&gt;.yml</code></td><td><strong>Generator only</strong></td><td>dbt tests (not_null/unique on the primary key, accepted_values on the status field) plus a documented entry for every other column.</td></tr>
+      <tr><td><code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/seeds/seed_&lt;id&gt;_raw.csv</code></td><td><strong>Generator writes the header; you fill in the rows</strong></td><td>Sample rows matching the staging model's raw <code>source_col</code> names — loaded by <code>dbt seed</code> into the table <code>sources_&lt;id&gt;.yml</code> points the <code>duckdb</code> target at. The generator can't invent business data, so re-running it after you've added rows wipes them back to header-only (back them up first).</td></tr>
     </table>
     <div class="info warn">Why the TODO block survives a re-run but nothing else does: <code>build_mart_queue_sql()</code> in the generator always emits <code>NULL AS &lt;col&gt;</code> for everything still listed under <code>mart.derived_columns</code> in the config — it does not read the file back first. If you've already filled in real SQL there and then re-run the generator (e.g. because you added a new staging column), <strong>your business logic will be silently overwritten back to <code>NULL</code></strong>. Either avoid re-running the generator once the TODOs are filled in, or re-paste the logic back in afterward. See <a href="#pipeline-4">Step 4</a> below.</div>
   </section>
@@ -254,7 +277,7 @@
   <section id="data-flow">
     <h2>🔄 Request Data Flow</h2>
     <pre><code>GET /api/ldc/case-queue?servicer_number=7721
-  ↓ router_factory's get_queue() (built from dashboards/ldc/config.yaml)
+  ↓ router_factory's get_queue() (built from dashboards/ldc/case-management/config.yaml)
   ↓ make_cache_key("ldc", "case-queue", {...}) → cache_get()
   ↓ Redis HIT  → return cached JSON directly
   ↓ Redis MISS → build_filter_clause() → execute_query() → DuckDB/Athena
@@ -276,12 +299,18 @@
 
   <div class="filecard">
     <div class="path">Step 1 — Copy the template folder</div>
-    <div class="purpose">Every dashboard starts as a copy of <code>dashboards/_template/</code>. Because the framework discovers dashboards by folder (see Step 6), copying the folder is the entire setup — there's no registry file to edit.</div>
-    <pre><code>cp -r backend/dashboards/_template backend/dashboards/&lt;dashboard_id&gt;</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="purpose">Every report starts as a copy of <code>dashboards/_template/</code>, which is two levels deep itself: a <code>service.yaml</code> at the top plus one <code>_template_report/</code> subfolder. Because the framework discovers dashboards by folder (see Step 6), copying the right piece of the template is the entire setup — there's no registry file to edit. Two cases:</div>
+    <pre><code># Case A — brand-new service (one that doesn't exist yet):
+cp -r backend/dashboards/_template backend/dashboards/&lt;service_id&gt;
+mv backend/dashboards/&lt;service_id&gt;/_template_report backend/dashboards/&lt;service_id&gt;/&lt;report_id&gt;
+# then edit the copied service.yaml's service_id/display_name/description</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <pre><code># Case B — new report under an EXISTING service (e.g. a second report under ldc or dlq):
+cp -r backend/dashboards/_template/_template_report backend/dashboards/&lt;service_id&gt;/&lt;report_id&gt;
+# service.yaml already exists for this service — leave it alone, no Case A step needed</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
   </div>
 
   <div class="filecard" id="pipeline-2">
-    <div class="path">Step 2 — Fill in dashboards/&lt;dashboard_id&gt;/config.yaml</div>
+    <div class="path">Step 2 — Fill in dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml</div>
     <div class="purpose">Declare the source table, the staging columns (with casts), the mart's primary key / status field / status values, any <code>derived_columns</code> whose business logic isn't known yet, and the API shape (filters, sort, dropdowns, export). No SQL, no Python — see the full annotated template under <a href="#template-yaml">Dashboard Configs</a> below.</div>
     <div class="info accent">Validated automatically: <code>config_loader.load_dashboard_config()</code> parses this file straight into <code>config_schema.DashboardConfig</code> (a Pydantic model). A typo'd field name or invalid <code>op</code>/<code>refresh_tier</code> value fails immediately with a clear validation error — not a silent bug discovered later at request time.</div>
   </div>
@@ -290,9 +319,9 @@
     <div class="path">Step 3 — Run the generator</div>
     <div class="purpose"><code>scripts/generate_dbt_models.py</code> reads <code>config.yaml</code> and writes its staging SQL, <code>sources.yml</code>, mart SQL, <code>schema.yml</code>, and a header-only seed CSV, all <strong>inside that same dashboard's folder</strong> — nothing is written anywhere else in the repo except the one shared <code>backend/dbt_project/</code> pair.</div>
     <pre><code>cd backend
-python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+python scripts/generate_dbt_models.py dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <pre><code># From generate_dbt_models.py's main() — output path is derived from the config's own location:
-dashboard_dir = cfg_path.parent                      # dashboards/&lt;dashboard_id&gt;/
+dashboard_dir = cfg_path.parent                      # dashboards/&lt;service_id&gt;/&lt;report_id&gt;/
 staging_dir = dashboard_dir / "dbt" / "staging"
 marts_dir = dashboard_dir / "dbt" / "marts"
 seeds_dir = dashboard_dir / "dbt" / "seeds"
@@ -303,13 +332,13 @@ seeds_dir = dashboard_dir / "dbt" / "seeds"
 (marts_dir / f"{cfg['mart']['summary_model_name']}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
 (marts_dir / f"schema_{cfg['dashboard_id']}.yml").write_text(build_schema_yml(cfg, config_filename))
 seed_path.write_text(build_seed_csv(cfg, config_filename))   # header only — sample rows are filled in by hand</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
-    <p>Produces: <code>dashboards/&lt;id&gt;/dbt/staging/stg_&lt;id&gt;.sql</code>, <code>.../staging/sources_&lt;id&gt;.yml</code>, <code>dashboards/&lt;id&gt;/dbt/marts/mart_&lt;id&gt;_queue.sql</code>, <code>.../mart_&lt;id&gt;_summary.sql</code>, <code>.../schema_&lt;id&gt;.yml</code>, and <code>dashboards/&lt;id&gt;/dbt/seeds/seed_&lt;id&gt;_raw.csv</code> (header only). Full generated output for <code>ldc</code> is under <a href="#generated-output">Generated Output</a>.</p>
+    <p>Produces: <code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/staging/stg_&lt;id&gt;.sql</code>, <code>.../staging/sources_&lt;id&gt;.yml</code>, <code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/mart_&lt;id&gt;_queue.sql</code>, <code>.../mart_&lt;id&gt;_summary.sql</code>, <code>.../schema_&lt;id&gt;.yml</code>, and <code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/seeds/seed_&lt;id&gt;_raw.csv</code> (header only). Full generated output for <code>ldc</code> is under <a href="#generated-output">Generated Output</a>.</p>
   </div>
 
   <div class="filecard" id="pipeline-4">
     <div class="path">Step 4 — Fill in the TODO business logic ⭐ the step that's actually dashboard-specific</div>
-    <div class="purpose">Open <code>dashboards/&lt;dashboard_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_queue.sql</code>. Everything above the TODO block is generated column passthrough — leave it. Each TODO line is a <code>derived_columns</code> entry from your config; replace the <code>NULL</code> with the real expression.</div>
-    <pre><code>-- dashboards/ldc/dbt/marts/mart_ldc_case_queue.sql, as generated:
+    <div class="purpose">Open <code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/mart_&lt;dashboard_id&gt;_queue.sql</code>. Everything above the TODO block is generated column passthrough — leave it. Each TODO line is a <code>derived_columns</code> entry from your config; replace the <code>NULL</code> with the real expression.</div>
+    <pre><code>-- dashboards/ldc/case-management/dbt/marts/mart_ldc_case_queue.sql, as generated:
 SELECT
     request_no,
     request_status,
@@ -375,15 +404,22 @@ _registered: list[str] = []
 for cfg in load_all_dashboards(DASHBOARDS_DIR):
     app.include_router(build_dashboard_router(cfg))
     _registered.append(cfg.dashboard_id)</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
-    <pre><code># core/config_loader.py — the folder scan itself
+    <pre><code># core/config_loader.py — the folder scan itself, now two levels deep
 def load_all_dashboards(dashboards_dir: Path) -> list[DashboardConfig]:
     configs = []
-    for d in sorted(Path(dashboards_dir).iterdir()):
-        if not d.is_dir() or d.name.startswith("_"):
+    for service_dir in sorted(Path(dashboards_dir).iterdir()):
+        if not service_dir.is_dir() or service_dir.name.startswith("_"):
             continue
-        config_file = d / "config.yaml"
-        if config_file.exists():
-            configs.append(load_dashboard_config(config_file))
+        service_file = service_dir / "service.yaml"
+        if not service_file.exists():
+            raise FileNotFoundError(f"{service_dir} is missing service.yaml")
+        load_service_config(service_file)   # validated, not collected — see #config-loader
+        for report_dir in sorted(service_dir.iterdir()):
+            if not report_dir.is_dir() or report_dir.name.startswith("_"):
+                continue
+            config_file = report_dir / "config.yaml"
+            if config_file.exists():
+                configs.append(load_dashboard_config(config_file))
     return configs</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <p>Confirm with <code>curl localhost:8000/dashboards</code> — your <code>dashboard_id</code> should appear in the list, and <code>{base_path}/{queue_endpoint}</code>, <code>/{summary_endpoint}</code>, <code>/filters/*</code>, <code>/{queue_endpoint}/export</code> all exist immediately.</p>
   </div>
@@ -429,15 +465,34 @@ async def sync_all():
     <div class="purpose">The contract every dashboard YAML must satisfy, enforced by Pydantic. If a config is missing a required field or uses an invalid <code>op</code>/<code>refresh_tier</code> value, it fails to load with a clear validation error instead of failing silently at request time.</div>
     <pre><code>"""
 Defines the schema every dashboard config YAML must follow.
-Adding a new dashboard = writing a new YAML file that validates against this schema,
-not writing new Python code. See backend/dashboards/_template/config.yaml to start one.
+Adding a new report = writing a new YAML file that validates against this schema,
+not writing new Python code. See backend/dashboards/_template/ to start one (a
+service.yaml plus a _template_report/config.yaml, one directory per report).
+
+Folder convention (enforced by core/config_loader.py, not by this file - this
+file only validates the YAML content, not where it lives on disk):
+    dashboards/&lt;service_id&gt;/service.yaml
+    dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml
+A "service" (e.g. ldc, dlq) is a grouping of one or more "reports" that share a
+business owner/source system; each report is exactly what used to be called a
+"dashboard" - its own fully self-contained config + dbt models.
 """
 from __future__ import annotations
 from typing import Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 RefreshTier = Literal["near_real_time", "snapshot_eod", "snapshot_eom", "needs_clarification"]
 FilterOp = Literal["eq", "ilike", "gte", "lte"]
+FilterDefault = Literal["latest"]
+
+
+class ServiceConfig(BaseModel):
+    """Schema for dashboards/&lt;service_id&gt;/service.yaml - metadata for the
+    folder grouping one or more reports. Cross-checked by config_loader.py
+    against its own folder name; carries no routing/dbt behavior itself."""
+    service_id: str
+    display_name: str
+    description: str = ""
 
 
 class SourceConfig(BaseModel):
@@ -466,9 +521,13 @@ class DerivedColumn(BaseModel):
 
 class MartConfig(BaseModel):
     queue_model_name: str
-    summary_model_name: str
+    # Optional: not every dashboard has a summary chart. Required only if
+    # api.summary_enabled is True (see DashboardConfig validator below).
+    summary_model_name: Optional[str] = None
     primary_key: str
-    status_field: str
+    # Optional: only needed if this dashboard has a canonical "status" column
+    # to validate (accepted_values test) and/or roll up in a summary chart.
+    status_field: Optional[str] = None
     status_values: list[str] = Field(default_factory=list)
     derived_columns: list[DerivedColumn] = Field(default_factory=list)
 
@@ -477,6 +536,22 @@ class FilterDef(BaseModel):
     field: str               # mart column name
     param: str                # query-param name exposed in the API
     op: FilterOp = "eq"
+    # Optional: when set to "latest" and a request omits this filter's query
+    # param entirely, router_factory.py substitutes the most recent value of
+    # `field` present in the mart (computed at request time), instead of
+    # returning unfiltered rows across every period. Has no effect if the
+    # request explicitly passes the param (even as an empty string - that's
+    # the escape hatch a caller uses to deliberately request "all", bypassing
+    # the default). Most useful on period/date-like filters - see
+    # dashboards/dlq/reported-data/config.yaml's activity_period filter.
+    default: Optional[FilterDefault] = None
+    # Optional: a strptime format string (e.g. "%m/%Y"), needed only when
+    # `field`'s raw string values don't sort correctly as plain strings (e.g.
+    # "06/2026" < "12/2025" lexically, which is backwards). When set,
+    # router_factory.py orders by the parsed date instead of the raw string
+    # to find the "latest" value. Leave unset for fields that already sort
+    # correctly as strings (ISO dates, numbers stored as text, etc.).
+    default_parse_format: Optional[str] = None
 
 
 class SortDef(BaseModel):
@@ -488,6 +563,11 @@ class ApiConfig(BaseModel):
     base_path: str                    # e.g. /api/ldc
     queue_endpoint: str = "queue"
     summary_endpoint: str = "summary"
+    # Per-dashboard endpoint toggles - not every dashboard has every endpoint.
+    # Default True for both so existing dashboards (e.g. ldc) keep working
+    # unchanged without touching their config.yaml.
+    queue_enabled: bool = True
+    summary_enabled: bool = True
     filters: list[FilterDef] = Field(default_factory=list)
     default_page_size: int = 25
     default_sort: SortDef
@@ -496,7 +576,16 @@ class ApiConfig(BaseModel):
 
 
 class DashboardConfig(BaseModel):
-    dashboard_id: str                 # short slug, used in routes/cache keys/dbt model names
+    dashboard_id: str                 # short slug, used in routes/cache keys/dbt model names. Must stay
+                                        # globally unique across every report in every service - unrelated
+                                        # to folder nesting, kept as its own field so existing cache
+                                        # keys/route tags/dbt model names never had to change when the
+                                        # service/report folder split was introduced.
+    service_id: str                   # must match the parent folder name (dashboards/&lt;service_id&gt;/) -
+                                        # checked by core/config_loader.py at load time, not here (this
+                                        # validator only sees YAML content, not the file's path on disk).
+    report_id: str                    # must match this folder's name (dashboards/&lt;service_id&gt;/&lt;report_id&gt;/) -
+                                        # same cross-check as service_id, done in config_loader.py.
     display_name: str
     description: str = ""
     refresh_tier: RefreshTier
@@ -504,39 +593,105 @@ class DashboardConfig(BaseModel):
     source: SourceConfig
     staging: StagingConfig
     mart: MartConfig
-    api: ApiConfig</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    api: ApiConfig
+
+    @model_validator(mode="after")
+    def _validate_enabled_endpoints_have_models(self) -> "DashboardConfig":
+        if self.api.summary_enabled and not self.mart.summary_model_name:
+            raise ValueError(
+                "api.summary_enabled is True but mart.summary_model_name is not set. "
+                "Either set mart.summary_model_name or set api.summary_enabled: false."
+            )
+        if self.api.queue_enabled and not self.mart.queue_model_name:
+            raise ValueError(
+                "api.queue_enabled is True but mart.queue_model_name is not set."
+            )
+        return self</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <table>
       <tr><th>Class</th><th>What it captures</th></tr>
       <tr><td><code>SourceConfig</code></td><td>Cross-account Glue/Iceberg database + table — still placeholders pending the source data team.</td></tr>
       <tr><td><code>StagingConfig</code></td><td>The casted/cleaned column list — drives the generated staging SQL.</td></tr>
-      <tr><td><code>MartConfig</code></td><td>Primary key, status field/values for the chart, and any <code>derived_columns</code> flagged <code>needs_clarification</code>.</td></tr>
-      <tr><td><code>ApiConfig</code></td><td>Everything the router factory needs: base path, filters, default sort/page size, which fields get dropdown endpoints.</td></tr>
+      <tr><td><code>MartConfig</code></td><td>Primary key, plus <em>optional</em> <code>summary_model_name</code>/<code>status_field</code> — <code>None</code> for a dashboard with no summary chart (e.g. <code>dlq</code>), and any <code>derived_columns</code> flagged <code>needs_clarification</code>.</td></tr>
+      <tr><td><code>ApiConfig</code></td><td>Everything the router factory needs: base path, filters, default sort/page size, which fields get dropdown endpoints, plus <code>queue_enabled</code>/<code>summary_enabled</code> toggles (both default <code>True</code>, so <code>ldc</code> needed no config changes).</td></tr>
+      <tr><td><code>DashboardConfig._validate_enabled_endpoints_have_models</code> <span class="badge badge-verified">NEW</span></td><td>A <code>model_validator</code> that rejects an inconsistent config at load time — e.g. <code>summary_enabled: true</code> with no <code>summary_model_name</code> — instead of failing later at request time with a confusing 500.</td></tr>
     </table>
   </div>
 
   <div class="filecard" id="config-loader">
     <div class="path">backend/core/config_loader.py</div>
-    <div class="purpose">Discovers and validates every dashboard config by scanning <strong>folders</strong>, not files — each dashboard is <code>dashboards/&lt;dashboard_id&gt;/config.yaml</code>. Folders prefixed with <code>_</code> (the template) are skipped on purpose so they never get registered as a live dashboard.</div>
+    <div class="purpose">Discovers and validates every service/report config by scanning <strong>folders two levels deep</strong>, not files — <code>dashboards/&lt;service_id&gt;/service.yaml</code> plus <code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml</code>. Folders prefixed with <code>_</code> (the template) are skipped at both levels so they never get registered as a live service/report. Every service folder must have a <code>service.yaml</code>, even if it groups only one report — missing one raises <code>FileNotFoundError</code> rather than silently skipping it.</div>
     <pre><code>from pathlib import Path
 import yaml
-from .config_schema import DashboardConfig
+from .config_schema import DashboardConfig, ServiceConfig
 
 
 def load_dashboard_config(path: Path) -> DashboardConfig:
-    data = yaml.safe_load(Path(path).read_text())
-    return DashboardConfig(**data)
+    """Loads one report's config.yaml and cross-checks its service_id/report_id
+    against the folder it actually lives in: dashboards/&lt;service_id&gt;/&lt;report_id&gt;/
+    config.yaml. This is what makes service_id/report_id "config-driven" rather
+    than just inferred from the folder - the YAML is the explicit source of
+    truth, and this check exists purely to catch drift (a renamed folder that
+    nobody updated the YAML for, or vice versa) at load time instead of letting
+    it surface later as a confusing mismatch."""
+    path = Path(path)
+    data = yaml.safe_load(path.read_text())
+    cfg = DashboardConfig(**data)
+
+    report_dir = path.parent
+    service_dir = report_dir.parent
+    if cfg.report_id != report_dir.name:
+        raise ValueError(
+            f"{path}: report_id ('{cfg.report_id}') does not match its folder name "
+            f"('{report_dir.name}'). Rename the folder or fix report_id so they match."
+        )
+    if cfg.service_id != service_dir.name:
+        raise ValueError(
+            f"{path}: service_id ('{cfg.service_id}') does not match its parent folder "
+            f"name ('{service_dir.name}'). Rename the folder or fix service_id so they match."
+        )
+    return cfg
+
+
+def load_service_config(path: Path) -> ServiceConfig:
+    """Loads a service.yaml and cross-checks its service_id against the folder
+    it lives in: dashboards/&lt;service_id&gt;/service.yaml."""
+    path = Path(path)
+    data = yaml.safe_load(path.read_text())
+    svc = ServiceConfig(**data)
+    service_dir = path.parent
+    if svc.service_id != service_dir.name:
+        raise ValueError(
+            f"{path}: service_id ('{svc.service_id}') does not match its folder name "
+            f"('{service_dir.name}'). Rename the folder or fix service_id so they match."
+        )
+    return svc
 
 
 def load_all_dashboards(dashboards_dir: Path) -> list[DashboardConfig]:
-    """Loads dashboards/&lt;dashboard_id&gt;/config.yaml for every dashboard folder,
-    except folders prefixed with '_' (templates/examples)."""
+    """Walks dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml two levels deep.
+    Every service folder must have a service.yaml (even if it has only one
+    report) - see dashboards/_template/service.yaml. Folders starting with
+    "_" (e.g. _template) are skipped at both levels."""
     configs = []
-    for d in sorted(Path(dashboards_dir).iterdir()):
-        if not d.is_dir() or d.name.startswith("_"):
+    for service_dir in sorted(Path(dashboards_dir).iterdir()):
+        if not service_dir.is_dir() or service_dir.name.startswith("_"):
             continue
-        config_file = d / "config.yaml"
-        if config_file.exists():
-            configs.append(load_dashboard_config(config_file))
+
+        service_file = service_dir / "service.yaml"
+        if not service_file.exists():
+            raise FileNotFoundError(
+                f"{service_dir} has no service.yaml - every service folder under dashboards/ "
+                f"needs one (service_id/display_name/description), even if it has only one report. "
+                f"See dashboards/_template/service.yaml."
+            )
+        load_service_config(service_file)
+
+        for report_dir in sorted(service_dir.iterdir()):
+            if not report_dir.is_dir() or report_dir.name.startswith("_"):
+                continue
+            config_file = report_dir / "config.yaml"
+            if config_file.exists():
+                configs.append(load_dashboard_config(config_file))
     return configs</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
   </div>
 
@@ -722,6 +877,7 @@ def build_filter_clause(filter_defs: list[FilterDef], query_params: dict) -> tup
     <div class="path">backend/core/router_factory.py</div>
     <div class="purpose"><strong>The piece that removes per-dashboard coding.</strong> Given a validated <code>DashboardConfig</code>, returns a fully wired FastAPI router — queue table, status summary, filter-lookup dropdowns, CSV export — all using the cache-aside pattern above. Adding dashboard #2 means writing a new YAML config, not a new router module.</div>
     <div class="info accent">The summary endpoint below is deliberately dumb: <code>get_summary()</code> does <code>SELECT * FROM {summary_mart}</code> and nothing else. It used to recompute a status-count GROUP BY against the <em>queue</em> mart in Python — duplicating logic dbt already computed, hardcoding a bar-chart shape, and never actually touching the dbt-built <code>mart_&lt;id&gt;_summary</code> table at all. That's fixed: all aggregation now lives in <code>mart_&lt;id&gt;_summary.sql</code> (see <a href="#sql-logic">Where New Dashboard SQL Logic Goes</a>), and this function just passes its rows through, the same way <code>get_queue()</code> passes through the queue mart's rows.</div>
+    <div class="info green"><strong>NEW — optional endpoints:</strong> both route blocks below are now wrapped in <code>if config.api.queue_enabled:</code> / <code>if config.api.summary_enabled and summary_mart:</code>. <code>dlq</code> has <code>summary_enabled: false</code>, so <code>build_dashboard_router()</code> never registers a <code>/summary</code> route for it at all — confirmed by <code>tests/test_dlq_smoke.py</code> hitting <code>/api/dlq/summary</code> and getting a genuine FastAPI <code>404</code>, not a <code>200</code> with empty data. <code>ldc</code> has both flags defaulting <code>True</code>, so its behavior is byte-for-byte unchanged.</div>
     <pre><code>"""
 This is the piece that removes the per-dashboard coding: given a validated
 DashboardConfig, it returns a fully wired FastAPI router (queue table, status
@@ -734,8 +890,8 @@ summary mart and returns the rows as-is - no GROUP BY, no aggregation, no
 chart-shaping logic lives here. Every dashboard's summary chart can be a
 completely different aggregation (status counts, sums by category, a trend
 line, ...) because that logic is written once in that dashboard's own
-mart_<id>_summary.sql, not in this shared Python file. See
-dashboards/<id>/dbt/marts/mart_<id>_summary.sql.
+mart_&lt;id&gt;_summary.sql, not in this shared Python file. See
+dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/mart_&lt;id&gt;_summary.sql.
 """
 import csv
 import io
@@ -760,61 +916,96 @@ def build_dashboard_router(config: DashboardConfig) -> APIRouter:
     def _collect_params(request: Request) -> dict:
         return {fd.param: request.query_params.get(fd.param) for fd in config.api.filters}
 
-    # ---- Queue table -------------------------------------------------
-    @router.get(f"/{config.api.queue_endpoint}", summary=f"{config.display_name} — queue")
-    async def get_queue(
-        request: Request,
-        page: int = Query(1, ge=1),
-        page_size: int = Query(config.api.default_page_size, ge=1, le=500),
-    ):
-        params_in = _collect_params(request)
-        cache_key = make_cache_key(
-            config.dashboard_id, config.api.queue_endpoint,
-            {**params_in, "page": page, "page_size": page_size},
-        )
-        cached = await cache_get(cache_key)
-        if cached is not None:
-            return cached
+    # ---- Default-to-latest filter resolution ---------------------------
+    # A filter can declare `default: latest` (see config_schema.py FilterDef).
+    # When a request OMITS that param entirely, _collect_params() above
+    # returns None for it (request.query_params.get() on a missing key), and
+    # this fills in the most recent value of that field present in the mart -
+    # e.g. dlq's reported-data defaults to the current activity_period instead
+    # of dumping every period in the 24-month window on first load. If a
+    # caller explicitly passes the param - even as an empty string - that's
+    # treated as "I want this filter to not apply" (build_filter_clause's
+    # existing convention), so the default is skipped, giving every caller an
+    # explicit way to ask for "all periods" without any new query param.
+    def _apply_filter_defaults(params_in: dict) -> dict:
+        resolved = dict(params_in)
+        for fd in config.api.filters:
+            if fd.default != "latest" or resolved.get(fd.param) is not None:
+                continue
+            order_expr = (
+                f"strptime({fd.field}, '{fd.default_parse_format}')"
+                if fd.default_parse_format else fd.field
+            )
+            rows = execute_query(
+                f"SELECT {fd.field} AS v FROM {mart} "
+                f"WHERE {fd.field} IS NOT NULL ORDER BY {order_expr} DESC LIMIT 1"
+            )
+            if rows:
+                resolved[fd.param] = rows[0]["v"]
+        return resolved
 
-        where, params = build_filter_clause(config.api.filters, params_in)
-        offset = (page - 1) * page_size
-        sql = (
-            f"SELECT * FROM {mart} {where} "
-            f"ORDER BY {sort_field} {sort_dir} "
-            f"LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}"
-        )
-        rows = execute_query(sql, params + [page_size, offset])
+    # ---- Queue table (raw data table) ---------------------------------
+    # Gated on api.queue_enabled - not every dashboard has a row-level table
+    # (though most do; this mirrors the config_schema.py validator requiring
+    # mart.queue_model_name whenever this is enabled).
+    if config.api.queue_enabled:
+        @router.get(f"/{config.api.queue_endpoint}", summary=f"{config.display_name} — queue")
+        async def get_queue(
+            request: Request,
+            page: int = Query(1, ge=1),
+            page_size: int = Query(config.api.default_page_size, ge=1, le=500),
+        ):
+            params_in = _apply_filter_defaults(_collect_params(request))
+            cache_key = make_cache_key(
+                config.dashboard_id, config.api.queue_endpoint,
+                {**params_in, "page": page, "page_size": page_size},
+            )
+            cached = await cache_get(cache_key)
+            if cached is not None:
+                return cached
 
-        count_sql = f"SELECT COUNT(*) AS n FROM {mart} {where}"
-        total = execute_query(count_sql, params)[0]["n"]
+            where, params = build_filter_clause(config.api.filters, params_in)
+            offset = (page - 1) * page_size
+            sql = (
+                f"SELECT * FROM {mart} {where} "
+                f"ORDER BY {sort_field} {sort_dir} "
+                f"LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}"
+            )
+            rows = execute_query(sql, params + [page_size, offset])
 
-        result = {"items": rows, "count": total, "page": page, "page_size": page_size}
-        await cache_set(cache_key, result, ttl=config.cache_ttl_seconds)
-        return result
+            count_sql = f"SELECT COUNT(*) AS n FROM {mart} {where}"
+            total = execute_query(count_sql, params)[0]["n"]
+
+            result = {"items": rows, "count": total, "page": page, "page_size": page_size}
+            await cache_set(cache_key, result, ttl=config.cache_ttl_seconds)
+            return result
 
     # ---- Summary chart (dumb passthrough) ------------------------------
-    # No GROUP BY, no aggregation, no chart-shaping here. The mart_<id>_summary
+    # Gated on api.summary_enabled - not every dashboard has a summary chart
+    # (e.g. a dashboard that's just a filterable raw-data table + export).
+    # No GROUP BY, no aggregation, no chart-shaping here. The mart_&lt;id&gt;_summary
     # model already contains whatever rollup that dashboard's chart needs -
     # this just selects it and hands the rows back untouched, exactly the way
     # get_queue() above hands back the queue mart's rows untouched. If a new
     # dashboard's chart is a sum-by-category, a trend line, or anything else,
-    # that logic is written once in that dashboard's mart_<id>_summary.sql -
+    # that logic is written once in that dashboard's mart_&lt;id&gt;_summary.sql -
     # this function never has to change.
-    @router.get(f"/{config.api.summary_endpoint}", summary=f"{config.display_name} — summary chart")
-    async def get_summary():
-        cache_key = make_cache_key(config.dashboard_id, config.api.summary_endpoint)
-        cached = await cache_get(cache_key)
-        if cached is not None:
-            return cached
+    if config.api.summary_enabled and summary_mart:
+        @router.get(f"/{config.api.summary_endpoint}", summary=f"{config.display_name} — summary chart")
+        async def get_summary():
+            cache_key = make_cache_key(config.dashboard_id, config.api.summary_endpoint)
+            cached = await cache_get(cache_key)
+            if cached is not None:
+                return cached
 
-        rows = execute_query(f"SELECT * FROM {summary_mart}")
-        result = {
-            "title": f"{config.display_name} — Summary",
-            "items": rows,
-            "count": len(rows),
-        }
-        await cache_set(cache_key, result, ttl=config.cache_ttl_seconds)
-        return result
+            rows = execute_query(f"SELECT * FROM {summary_mart}")
+            result = {
+                "title": f"{config.display_name} — Summary",
+                "items": rows,
+                "count": len(rows),
+            }
+            await cache_set(cache_key, result, ttl=config.cache_ttl_seconds)
+            return result
 
     # ---- Filter / dropdown lookups -------------------------------------
     for field in config.api.filter_lookup_fields:
@@ -843,7 +1034,7 @@ def build_dashboard_router(config: DashboardConfig) -> APIRouter:
     if config.api.export_enabled:
         @router.get(f"/{config.api.queue_endpoint}/export", summary=f"{config.display_name} — export CSV")
         async def export_csv(request: Request):
-            params_in = _collect_params(request)
+            params_in = _apply_filter_defaults(_collect_params(request))
             where, params = build_filter_clause(config.api.filters, params_in)
             sql = f"SELECT * FROM {mart} {where} ORDER BY {sort_field} {sort_dir}"
             rows = execute_query(sql, params)
@@ -862,8 +1053,8 @@ def build_dashboard_router(config: DashboardConfig) -> APIRouter:
     return router</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <table>
       <tr><th>Endpoint generated</th><th>From config field</th></tr>
-      <tr><td><code>GET {base_path}/{queue_endpoint}</code></td><td><code>api.filters</code>, <code>api.default_sort</code>, <code>api.default_page_size</code></td></tr>
-      <tr><td><code>GET {base_path}/{summary_endpoint}</code></td><td><code>mart.summary_model_name</code> only — passthrough of whatever <code>mart_&lt;id&gt;_summary.sql</code> produces, no config-driven shaping</td></tr>
+      <tr><td><code>GET {base_path}/{queue_endpoint}</code> — only if <code>api.queue_enabled</code></td><td><code>api.filters</code>, <code>api.default_sort</code>, <code>api.default_page_size</code></td></tr>
+      <tr><td><code>GET {base_path}/{summary_endpoint}</code> — only if <code>api.summary_enabled</code> AND <code>mart.summary_model_name</code> is set</td><td>passthrough of whatever <code>mart_&lt;id&gt;_summary.sql</code> produces, no config-driven shaping. Absent entirely (real 404) for <code>dlq</code>.</td></tr>
       <tr><td><code>GET {base_path}/filters/{field}</code> — one per field</td><td><code>api.filter_lookup_fields</code></td></tr>
       <tr><td><code>GET {base_path}/{queue_endpoint}/export</code></td><td><code>api.export_enabled</code></td></tr>
     </table>
@@ -871,7 +1062,7 @@ def build_dashboard_router(config: DashboardConfig) -> APIRouter:
 
   <div class="filecard" id="main">
     <div class="path">backend/main.py</div>
-    <div class="purpose">App entrypoint. Scans <code>dashboards/*/config.yaml</code> at startup and registers each one's router — this file is <strong>never edited</strong> to add a dashboard.</div>
+    <div class="purpose">App entrypoint. Scans <code>dashboards/*/*/config.yaml</code> at startup and registers each one's router — this file is <strong>never edited</strong> to add a dashboard.</div>
     <pre><code>from pathlib import Path
 
 from fastapi import FastAPI
@@ -911,28 +1102,63 @@ async def list_dashboards():
 
   <!-- ============ DASHBOARD CONFIGS ============ -->
   <h2 id="template-yaml">📝 Dashboard Configs</h2>
+  <p>Each service is a folder of one or more reports that share a business owner/source system. A service folder always has its own <code>service.yaml</code> (metadata only - no routing/dbt behavior), plus one subfolder per report, each with its own <code>config.yaml</code> (the thing that actually drives routes, dbt models, and cache keys). <code>dashboard_id</code> stays the framework's unique-per-report identifier - unaffected by which service/report folder a report lives in.</p>
 
   <div class="filecard">
-    <div class="path">backend/dashboards/_template/config.yaml</div>
-    <div class="purpose">The whole <code>_template/</code> folder is what you copy to start a new dashboard. Ignored by <code>config_loader</code> because of the leading underscore on the folder name — it will never accidentally get registered as a live dashboard.</div>
-    <pre><code># Template for a new dashboard. Copy this whole FOLDER to dashboards/&lt;your_id&gt;/
-# and fill in config.yaml. Folders starting with "_" are ignored by the framework
-# (so this template folder is never registered as a live dashboard).
+    <div class="path">backend/dashboards/_template/service.yaml</div>
+    <div class="purpose">Copy the whole <code>_template/</code> folder to start a brand-new service (its first report comes along for free as <code>_template_report/</code>). Ignored by <code>config_loader</code> at both levels because of the leading underscore - it will never accidentally get registered as a live service/report.</div>
+    <pre><code># Template service.yaml. Folders starting with "_" are ignored by the framework
+# entirely (config_loader.py skips them at both the service and report level),
+# so this whole _template/ tree is never registered as a live service/report.
 #
-# Steps to add a new dashboard with this template:
-#   1. cp -r dashboards/_template dashboards/&lt;dashboard_id&gt;
-#   2. Fill in every field in dashboards/&lt;dashboard_id&gt;/config.yaml below.
-#   3. python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml
-#      -&gt; scaffolds dashboards/&lt;dashboard_id&gt;/dbt/staging + dbt/marts SQL + schema.yml,
-#         with TODOs for any business logic flagged needs_clarification: true
-#   4. Fill in the TODOs in the generated SQL (dashboards/&lt;dashboard_id&gt;/dbt/marts/),
-#      then `dbt run`.
-#   5. Restart the API - the new dashboard appears automatically, no Python changes.
+# Steps to add a brand-new SERVICE (a new source system / business owner) with
+# its first report, using this template:
+#   1. cp -r dashboards/_template dashboards/&lt;your_service_id&gt;
+#   2. mv dashboards/&lt;your_service_id&gt;/_template_report dashboards/&lt;your_service_id&gt;/&lt;your_report_id&gt;
+#   3. Fill in dashboards/&lt;your_service_id&gt;/service.yaml (this file) - service_id
+#      must equal &lt;your_service_id&gt;, the folder name.
+#   4. Fill in dashboards/&lt;your_service_id&gt;/&lt;your_report_id&gt;/config.yaml - service_id
+#      must equal &lt;your_service_id&gt;, report_id must equal &lt;your_report_id&gt;.
+#   5. python scripts/generate_dbt_models.py dashboards/&lt;your_service_id&gt;/&lt;your_report_id&gt;/config.yaml
+#   6. Fill in the TODOs in the generated SQL, then `dbt run`.
+#   7. Restart the API - the new report appears automatically, no Python changes.
 #
-# Everything specific to this dashboard lives inside this one folder - nothing
-# for it is written or edited anywhere else in the repo.
+# To add a SECOND report under an EXISTING service (e.g. a new dlq report
+# alongside reported-data), skip steps 1-3 and start at step 2, copying an
+# existing report folder (e.g. dashboards/dlq/reported-data) instead of this
+# template, then continue from step 4 with the existing service_id.
 
-dashboard_id: my_new_dashboard          # short slug - used in routes, cache keys, dbt model names
+service_id: my_new_service
+display_name: "My New Service"
+description: "One-line description of the source system / business area this service groups reports for."</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="template-report-yaml">
+    <div class="path">backend/dashboards/_template/_template_report/config.yaml</div>
+    <div class="purpose">The report-level template, one level under <code>service.yaml</code>. To add a new report under an <strong>existing</strong> service instead of a brand-new one, copy just this report folder (e.g. <code>dashboards/dlq/reported-data</code>) rather than the whole <code>_template/</code> tree - see this file's own header comment for both paths.</div>
+    <pre><code># Template for a new REPORT within a service. See dashboards/_template/service.yaml
+# one level up for how to scaffold a brand-new service; this file is the report
+# itself, one level deeper, at dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml.
+# Folders starting with "_" are ignored by the framework at both levels (so this
+# whole _template/ tree is never registered as a live service/report).
+#
+# Steps to add a new REPORT under an EXISTING service with this template:
+#   1. cp -r dashboards/_template/_template_report dashboards/&lt;service_id&gt;/&lt;report_id&gt;
+#   2. Fill in every field below, including service_id and report_id.
+#   3. python scripts/generate_dbt_models.py dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml
+#      -> scaffolds dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/staging + dbt/marts SQL + schema.yml,
+#         with TODOs for any business logic flagged needs_clarification: true
+#   4. Fill in the TODOs in the generated SQL (dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/),
+#      then `dbt run`.
+#   5. Restart the API - the new report appears automatically, no Python changes.
+#
+# Everything specific to this report lives inside this one folder - nothing for
+# it is written or edited anywhere else in the repo.
+
+dashboard_id: my_new_dashboard          # short slug - used in routes, cache keys, dbt model names. Must stay
+                                          # globally unique across every report in every service.
+service_id: my_new_service               # must match the parent folder name (dashboards/&lt;service_id&gt;/)
+report_id: my_new_report                 # must match this folder's name (dashboards/&lt;service_id&gt;/&lt;report_id&gt;/)
 display_name: "My New Dashboard"
 description: "One-line description of what this dashboard reports on."
 
@@ -953,93 +1179,227 @@ staging:
 
 mart:
   queue_model_name: mart_my_new_dashboard_queue
+  # Optional - only required if api.summary_enabled is true (default true).
+  # Set to null and api.summary_enabled: false for a report that's just a
+  # filterable raw-data table + export, with no summary chart. See
+  # dashboards/dlq/reported-data/config.yaml for an example of a summary-less report.
   summary_model_name: mart_my_new_dashboard_summary
   primary_key: request_no
+  # Optional - only needed if this report has one canonical "status" column
+  # to validate (accepted_values test) and/or roll up into the summary chart.
   status_field: request_status
   status_values: ["Draft", "Completed"]    # every value the summary chart should show, even if zero
-  derived_columns: []                       # see dashboards/ldc/config.yaml for the needs_clarification pattern
+  derived_columns: []                       # see dashboards/ldc/case-management/config.yaml for the needs_clarification pattern
 
 api:
   base_path: /api/my_new_dashboard
   queue_endpoint: queue
   summary_endpoint: summary
-  filters: []                                # list of {field, param, op: eq|ilike|gte|lte}
+  queue_enabled: true                        # set false for a report with no row-level table
+  summary_enabled: true                      # set false for a report with no summary chart
+  # list of {field, param, op: eq|ilike|gte|lte, default, default_parse_format}.
+  # default/default_parse_format are optional - set default: latest on a filter
+  # (typically a period/date-like field) to make the API use the most recent
+  # value present in the mart whenever a request omits that query param. If the
+  # field isn't lexically sortable in its raw string form (e.g. "MM/YYYY", where
+  # "06/2026" < "12/2025" as a plain string), also set default_parse_format to a
+  # strptime format string so "latest" is computed correctly. See
+  # dashboards/dlq/reported-data/config.yaml's activity_period filter for a real example.
+  filters: []
   default_page_size: 25
   default_sort: {field: request_no, direction: desc}
   filter_lookup_fields: []                    # fields that need a dropdown endpoint
   export_enabled: true</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
   </div>
 
-  <div class="filecard" id="ldc-yaml">
-    <div class="path">backend/dashboards/ldc/config.yaml</div>
-    <div class="purpose">Dashboard #1, fully expressed as config, self-contained inside <code>dashboards/ldc/</code> alongside its own <code>dbt/staging</code> and <code>dbt/marts</code> — matches the prototype's 16 queue columns, 14 filters, and 6-status summary chart exactly. <span class="badge badge-verified">VERIFIED</span></div>
-    <pre><code>dashboard_id: ldc
-display_name: "LDC Case Management Dashboard"
-description: "Loan Data Correction case queue, status summary, and filters."
+  <div class="filecard">
+    <div class="path">backend/dashboards/ldc/service.yaml</div>
+    <div class="purpose">Service-level metadata for <code>ldc</code> - today groups exactly one report (<code>case-management</code>), but the folder structure supports adding more under the same service with no change to this file.</div>
+    <pre><code># Service-level metadata for the "ldc" service. This file does not drive any
+# routing or dbt logic by itself - it is the explicit, config-driven label for
+# the folder grouping below it, and config_loader.py checks at load time that
+# service_id here matches this folder's name (dashboards/ldc/), and that every
+# report config.yaml under this folder declares service_id: ldc to match.
+#
+# A service is a grouping of one or more reports that share a business owner/
+# source system. Today "ldc" has exactly one report (case-management), but the
+# folder structure supports adding more without any change to this file:
+#   dashboards/ldc/service.yaml
+#   dashboards/ldc/case-management/config.yaml   <- existing report
+#   dashboards/ldc/&lt;new-report-id&gt;/config.yaml     <- a second report, if/when needed
 
-refresh_tier: near_real_time   # ⚠ flagged in the project plan as needing confirmation - may need &lt;15min
+service_id: ldc
+display_name: "Loan Data Correction (LDC)"
+description: "Loan Data Correction case management and related reporting."</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="ldc-yaml">
+    <div class="path">backend/dashboards/ldc/case-management/config.yaml</div>
+    <div class="purpose">Dashboard #1, fully expressed as config, self-contained inside <code>dashboards/ldc/case-management/</code> alongside its own <code>dbt/staging</code> and <code>dbt/marts</code> - matches the prototype's 16 queue columns, 14 filters, and 6-status summary chart exactly. <span class="badge badge-verified">VERIFIED</span></div>
+    <pre><code>dashboard_id: ldc
+service_id: ldc                        # must match dashboards/ldc/ - the parent folder this lives under
+report_id: case-management              # must match dashboards/ldc/case-management/ - this folder
+display_name: "LDC Case Management Dashboard"
+description: "Loan Data Correction case queue, status summary, and filters."
+
+refresh_tier: near_real_time   # ⚠ flagged in the project plan as needing confirmation - may need <15min
+cache_ttl_seconds: 3600
+
+source:
+  database: TBD_source_database     # placeholder - cross-account Glue/Iceberg database, pending data team
+  table: TBD_ldc_case_requests       # placeholder - source Iceberg table for case requests
+  loan_attributes_table: TBD_ldc_loan_attributes   # placeholder - backs Loan Count / Attribute Count
+
+staging:
+  model_name: stg_ldc_case_requests
+  columns:
+    - {name: request_no,       type: varchar, source_col: request_no}
+    - {name: request_status,   type: varchar, source_col: status}
+    - {name: sub_status,       type: varchar, source_col: sub_status}
+    - {name: submitter_name,   type: varchar, source_col: submitter_name}
+    - {name: submitter_group,  type: varchar, source_col: submitter_group}
+    - {name: seller_number,    type: varchar, source_col: seller_number}
+    - {name: seller_name,      type: varchar, source_col: seller_name}
+    - {name: servicer_number,  type: varchar, source_col: servicer_number}
+    - {name: servicer_name,    type: varchar, source_col: servicer_name}
+    - {name: reviewer_group,   type: varchar, source_col: reviewer_group}
+    - {name: reviewer_name,    type: varchar, source_col: reviewer_name}
+    - {name: fm_loan_number,   type: varchar, source_col: fm_loan_number}
+    - {name: submission_date,  type: date,    source_col: submission_date}
+    - {name: completion_date,  type: date,    source_col: completion_date}
+    - {name: loan_count,       type: integer, source_col: loan_count}
+    - {name: attribute_count,  type: integer, source_col: attribute_count}
+
+mart:
+  queue_model_name: mart_ldc_case_queue
+  summary_model_name: mart_ldc_status_summary
+  primary_key: request_no
+  status_field: request_status
+  status_values: ["Draft", "Exception Review", "Pending Reclass", "Completed", "Canceled", "Rejec"]
+  derived_columns:
+    - {name: queue_age,   needs_clarification: true, note: "Elapsed-time calc TBD - calendar vs business hours"}
+    - {name: cycle_time,  needs_clarification: true, note: "Business-day calc TBD; only meaningful once Completion Date is set"}
+    - {name: sla_status,  needs_clarification: true, note: "SLA thresholds (Within SLA / At Risk / Breached) TBD"}
+
+api:
+  base_path: /api/ldc
+  queue_endpoint: case-queue
+  summary_endpoint: status-summary
+  filters:
+    - {field: request_no,       param: request_no,          op: eq}
+    - {field: submitter_name,   param: submitter_name,       op: ilike}
+    - {field: submitter_group,  param: submitter_group,      op: eq}
+    - {field: seller_number,    param: seller_number,        op: eq}
+    - {field: servicer_number,  param: servicer_number,      op: eq}
+    - {field: reviewer_group,   param: reviewer_group,       op: eq}
+    - {field: reviewer_name,    param: reviewer_name,        op: ilike}
+    - {field: fm_loan_number,   param: fm_loan_number,       op: eq}
+    - {field: sub_status,       param: sub_status,           op: eq}
+    - {field: submission_date,  param: submission_date_from, op: gte}
+    - {field: submission_date,  param: submission_date_to,   op: lte}
+    - {field: completion_date,  param: completion_date_from, op: gte}
+    - {field: completion_date,  param: completion_date_to,   op: lte}
+    - {field: sla_status,       param: sla_status,           op: eq}   # derived column - returns nothing until E3-S1-T4 is implemented
+  default_page_size: 25
+  default_sort: {field: submission_date, direction: desc}
+  filter_lookup_fields: [submitter_group, reviewer_group, seller_number, servicer_number, sub_status]
+  export_enabled: true</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <div class="info warn">Carries forward the same open items as the Excel project plan: <code>source.database</code>/<code>source.table</code> are <code>TBD_*</code> pending the cross-account Iceberg table names, and <code>queue_age</code>/<code>cycle_time</code>/<code>sla_status</code> need business-rule confirmation before they're real columns instead of <code>NULL</code> placeholders. Also note <code>status_values</code> has a pre-existing typo - <code>"Rejec"</code> instead of <code>"Rejected"</code> - carried over unchanged from the original config; flagging rather than silently fixing it here since the live <code>config.yaml</code> still has it.</div>
+  </div>
+
+  <div class="filecard">
+    <div class="path">backend/dashboards/dlq/service.yaml</div>
+    <div class="purpose">Service-level metadata for <code>dlq</code> - today groups exactly one report (<code>reported-data</code>), cross-checked by <code>config_loader.py</code> against this folder's name and against every report config.yaml nested under it.</div>
+    <pre><code># Service-level metadata for the "dlq" service. See dashboards/ldc/service.yaml
+# for the full explanation of what this file is and isn't responsible for - the
+# short version: it's the explicit, config-driven label for this folder grouping,
+# cross-checked by config_loader.py against the folder name and against every
+# report config.yaml nested under it.
+#
+#   dashboards/dlq/service.yaml
+#   dashboards/dlq/reported-data/config.yaml   <- existing report
+
+service_id: dlq
+display_name: "Delinquency (DLQ)"
+description: "Delinquency status/action/reason reporting, by activity period."</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  </div>
+
+  <div class="filecard" id="dlq-yaml">
+    <div class="path">backend/dashboards/dlq/reported-data/config.yaml <span style="color:var(--purple);font-weight:400;">— dashboard #2</span></div>
+    <div class="purpose">Delinquency Reported Data - a deliberately different report shape from <code>ldc</code>, to prove the framework flexes per report: 23 staging columns, a filterable raw-data table + CSV export, <strong>no</strong> summary chart at all (<code>summary_model_name: null</code>, <code>api.summary_enabled: false</code>), a primary key that's intentionally not row-unique (<code>fnm_loan_number</code> alone - true grain is <code>(fnm_loan_number, activity_period)</code>), and a <code>default: latest</code> filter on <code>activity_period</code> so a request that omits the param gets only the most recent period instead of the full 24-month window. <span class="badge badge-verified">VERIFIED</span> end-to-end via real <code>dbt seed &amp;&amp; dbt run &amp;&amp; dbt test</code> against 2,600 seed rows (100 rows × 26 activity periods).</div>
+    <pre><code>dashboard_id: dlq
+service_id: dlq                        # must match dashboards/dlq/ - the parent folder this lives under
+report_id: reported-data                # must match dashboards/dlq/reported-data/ - this folder
+display_name: "Delinquency Reported Data"
+description: "Counts of delinquency action, status, and reason data, reported by activity period."
+
+refresh_tier: snapshot_eom   # batch/monthly refresh - matches the "Last Updated" timestamp pattern on the source mockup, not live querying
 cache_ttl_seconds: 3600
 
 source:
-  database: TBD_source_database     # placeholder - cross-account Glue/Iceberg database, pending data team
-  table: TBD_ldc_case_requests       # placeholder - source Iceberg table for case requests
-  loan_attributes_table: TBD_ldc_loan_attributes   # placeholder - backs Loan Count / Attribute Count
+  database: TBD_source_database          # placeholder - cross-account Glue/Iceberg database, pending data team
+  table: TBD_dlq_reported_data            # placeholder - source Iceberg table backing the loan/activity-period grain
+  loan_attributes_table: null
 
 staging:
-  model_name: stg_ldc_case_requests
+  model_name: stg_dlq_reported_data
   columns:
-    - {name: request_no,       type: varchar, source_col: request_no}
-    - {name: request_status,   type: varchar, source_col: status}
-    - {name: sub_status,       type: varchar, source_col: sub_status}
-    - {name: submitter_name,   type: varchar, source_col: submitter_name}
-    - {name: submitter_group,  type: varchar, source_col: submitter_group}
-    - {name: seller_number,    type: varchar, source_col: seller_number}
-    - {name: seller_name,      type: varchar, source_col: seller_name}
-    - {name: servicer_number,  type: varchar, source_col: servicer_number}
-    - {name: servicer_name,    type: varchar, source_col: servicer_name}
-    - {name: reviewer_group,   type: varchar, source_col: reviewer_group}
-    - {name: reviewer_name,    type: varchar, source_col: reviewer_name}
-    - {name: fm_loan_number,   type: varchar, source_col: fm_loan_number}
-    - {name: submission_date,  type: date,    source_col: submission_date}
-    - {name: completion_date,  type: date,    source_col: completion_date}
-    - {name: loan_count,       type: integer, source_col: loan_count}
-    - {name: attribute_count,  type: integer, source_col: attribute_count}
+    - {name: fnm_loan_number,                          type: varchar, source_col: fnm_loan_number}
+    - {name: servicer_loan_identifier,                 type: varchar, source_col: servicer_loan_identifier}
+    - {name: master_servicer_number,                   type: varchar, source_col: master_servicer_number}
+    - {name: master_servicer_name,                     type: varchar, source_col: master_servicer_name}
+    - {name: acting_servicer_number,                    type: varchar, source_col: acting_servicer_number}
+    - {name: acting_servicer_name,                      type: varchar, source_col: acting_servicer_name}
+    - {name: activity_period,                           type: varchar, source_col: activity_period}        # "MM/YYYY" string, e.g. "06/2026"
+    - {name: periods_delinquent,                        type: integer, source_col: periods_delinquent}
+    - {name: servicer_action_type,                      type: varchar, source_col: servicer_action_type}
+    - {name: servicer_action_type_received_dt,          type: date,    source_col: servicer_action_type_received_dt}
+    - {name: conditional_data_attributes_action_type,   type: varchar, source_col: conditional_data_attributes_action_type}
+    - {name: delinquency_status_type_received_date,     type: date,    source_col: delinquency_status_type_received_date}
+    - {name: delinquency_status_type_1,                 type: varchar, source_col: delinquency_status_type_1}
+    - {name: delinquency_status_type_2,                 type: varchar, source_col: delinquency_status_type_2}
+    - {name: delinquency_status_type_3,                 type: varchar, source_col: delinquency_status_type_3}
+    - {name: delinquency_status_type_4,                 type: varchar, source_col: delinquency_status_type_4}
+    - {name: delinquency_status_type_5,                 type: varchar, source_col: delinquency_status_type_5}
+    - {name: delinquency_reason_type_received_date,     type: date,    source_col: delinquency_reason_type_received_date}
+    - {name: delinquency_reason_type_1,                 type: varchar, source_col: delinquency_reason_type_1}
+    - {name: delinquency_reason_type_2,                 type: varchar, source_col: delinquency_reason_type_2}
+    - {name: delinquency_reason_type_3,                 type: varchar, source_col: delinquency_reason_type_3}
+    - {name: delinquency_reason_type_4,                 type: varchar, source_col: delinquency_reason_type_4}
+    - {name: delinquency_reason_type_5,                 type: varchar, source_col: delinquency_reason_type_5}
 
 mart:
-  queue_model_name: mart_ldc_case_queue
-  summary_model_name: mart_ldc_status_summary
-  primary_key: request_no
-  status_field: request_status
-  status_values: ["Draft", "Exception Review", "Pending Reclass", "Completed", "Canceled", "Rejected"]
-  derived_columns:
-    - {name: queue_age,   needs_clarification: true, note: "Elapsed-time calc TBD - calendar vs business hours"}
-    - {name: cycle_time,  needs_clarification: true, note: "Business-day calc TBD; only meaningful once Completion Date is set"}
-    - {name: sla_status,  needs_clarification: true, note: "SLA thresholds (Within SLA / At Risk / Breached) TBD"}
+  queue_model_name: mart_dlq_reported_data
+  summary_model_name: null            # no summary chart for this dashboard - just the raw table + export
+  primary_key: fnm_loan_number         # NOTE: not unique per row - true grain is (fnm_loan_number, activity_period).
+                                        # Per project decision, using fnm_loan_number alone and accepting the dbt
+                                        # not_null/unique test on this column will NOT actually hold once a loan
+                                        # has rows across multiple activity periods. Revisit if/when dbt_utils is
+                                        # added to the project (would enable a proper composite-unique test).
+  status_field: null                   # no canonical "status" column for this dashboard - flagged out of scope
+  status_values: []
+  derived_columns: []
 
 api:
-  base_path: /api/ldc
-  queue_endpoint: case-queue
-  summary_endpoint: status-summary
+  base_path: /api/dlq
+  queue_endpoint: reported-data         # not a "queue" - this is a filterable raw data table, named to match
+  summary_endpoint: summary             # unused since summary_enabled is false
+  queue_enabled: true
+  summary_enabled: false
   filters:
-    - {field: request_no,       param: request_no,          op: eq}
-    - {field: submitter_name,   param: submitter_name,       op: ilike}
-    - {field: submitter_group,  param: submitter_group,      op: eq}
-    - {field: seller_number,    param: seller_number,        op: eq}
-    - {field: servicer_number,  param: servicer_number,      op: eq}
-    - {field: reviewer_group,   param: reviewer_group,       op: eq}
-    - {field: reviewer_name,    param: reviewer_name,        op: ilike}
-    - {field: fm_loan_number,   param: fm_loan_number,       op: eq}
-    - {field: sub_status,       param: sub_status,           op: eq}
-    - {field: submission_date,  param: submission_date_from, op: gte}
-    - {field: submission_date,  param: submission_date_to,   op: lte}
-    - {field: completion_date,  param: completion_date_from, op: gte}
-    - {field: completion_date,  param: completion_date_to,   op: lte}
-    - {field: sla_status,       param: sla_status,           op: eq}   # derived column - returns nothing until E3-S1-T4 is implemented
+    # default: latest -> a request that omits ?activity_period= entirely gets
+    # the most recent period in the mart instead of every period in the
+    # 24-month window. default_parse_format is required here because
+    # activity_period is stored as "MM/YYYY" text, which does NOT sort
+    # correctly as a plain string (e.g. "06/2026" < "12/2025" lexically).
+    # To deliberately fetch every period, pass ?activity_period= (empty) -
+    # build_filter_clause already treats an empty value as "no filter".
+    - {field: activity_period, param: activity_period, op: eq, default: latest, default_parse_format: "%m/%Y"}
   default_page_size: 25
-  default_sort: {field: submission_date, direction: desc}
-  filter_lookup_fields: [submitter_group, reviewer_group, seller_number, servicer_number, sub_status]
+  default_sort: {field: fnm_loan_number, direction: asc}
+  filter_lookup_fields: [activity_period]   # powers the Activity Period dropdown
   export_enabled: true</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
-    <div class="info warn">Carries forward the same open items as the Excel project plan: <code>source.database</code>/<code>source.table</code> are <code>TBD_*</code> pending the cross-account Iceberg table names, and <code>queue_age</code>/<code>cycle_time</code>/<code>sla_status</code> need business-rule confirmation before they're real columns instead of <code>NULL</code> placeholders.</div>
+    <div class="info accent">This config alone - no Python - is what produces a report with a queue/filter/export but genuinely <strong>no</strong> <code>/summary</code> route: <code>api.summary_enabled: false</code> plus <code>mart.summary_model_name: null</code> together mean <code>generate_dbt_models.py</code> never writes a summary mart and <code>router_factory.build_dashboard_router()</code> never registers the route. The <code>default: latest</code>/<code>default_parse_format</code> filter is resolved generically by <code>router_factory.py</code>'s <code>_apply_filter_defaults()</code> - see <a href="#router-factory">core/router_factory.py</a> - not by any dlq-specific code. The two hand-edits on top of the generated output - the 24-month window in <code>mart_dlq_reported_data.sql</code> and the dropped <code>unique</code> test in <code>schema_dlq.yml</code> - are both flagged in those files' own header comments so a future regeneration doesn't silently lose them.</div>
   </div>
 
   <!-- ============ DBT GENERATION ============ -->
@@ -1049,7 +1409,7 @@ api:
     <div class="path">backend/scripts/generate_dbt_models.py</div>
     <div class="purpose">Reads one dashboard config and scaffolds its dbt staging model, <code>sources.yml</code>, mart models, <code>schema.yml</code>, and a header-only seed CSV. Column casting, model structure, source wiring, and test stubs are generated. Dashboard-specific work is left for a human in three places: the queue mart's <code>TODO</code> comments (anything flagged <code>needs_clarification</code>), the summary mart (generated with a working zero-filled status-count default but fully expected to be rewritten per dashboard for whatever chart aggregation it actually needs), and the seed CSV's sample rows (the generator can't invent business data, so it only writes the header).</div>
     <h4>Usage</h4>
-    <pre><code>python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+    <pre><code>python scripts/generate_dbt_models.py dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <pre><code>"""
 Reads one dashboard's config.yaml and scaffolds its dbt staging model, mart models,
 sources.yml, a local-dev seed, and schema.yml — written into that same dashboard's
@@ -1061,27 +1421,34 @@ config), as a fully editable default in the summary mart (since every dashboard'
 chart aggregation is different), and as actual sample rows in the seed CSV (the
 generator can't invent business data, so it only writes the header row).
 
-Every dashboard is fully self-contained under backend/dashboards/&lt;dashboard_id&gt;/:
-    dashboards/&lt;dashboard_id&gt;/config.yaml                            &lt;- you write this
-    dashboards/&lt;dashboard_id&gt;/dbt/staging/*.sql                       &lt;- this script writes these
-    dashboards/&lt;dashboard_id&gt;/dbt/staging/sources_&lt;dashboard_id&gt;.yml   &lt;- and this
-    dashboards/&lt;dashboard_id&gt;/dbt/marts/*.sql                          &lt;- this script writes these
-    dashboards/&lt;dashboard_id&gt;/dbt/marts/schema_&lt;dashboard_id&gt;.yml      &lt;- and this
-    dashboards/&lt;dashboard_id&gt;/dbt/seeds/seed_&lt;dashboard_id&gt;_raw.csv    &lt;- header only; fill in sample rows by hand
+Every report is fully self-contained under backend/dashboards/&lt;service_id&gt;/&lt;report_id&gt;/
+(a "service" like ldc or dlq is just the folder grouping one or more reports -
+see core/config_schema.py's module docstring):
+    dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml                            <- you write this
+    dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/staging/*.sql                       <- this script writes these
+    dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/staging/sources_&lt;dashboard_id&gt;.yml   <- and this
+    dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/*.sql                          <- this script writes these
+    dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/marts/schema_&lt;dashboard_id&gt;.yml      <- and this
+    dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/seeds/seed_&lt;dashboard_id&gt;_raw.csv    <- header only; fill in sample rows by hand
+
+Generated filenames are still keyed by dashboard_id, not report_id - dashboard_id
+was already the framework's unique-per-report identifier before the service/
+report folder split, so reusing it here means no generated file had to be
+renamed when that split was introduced.
 
 The generated sources.yml resolves the same {{ source(...) }} reference used by
 the staging model to two different physical tables depending on dbt target: the
 duckdb target (local dev) points at the seed CSV above, so `dbt seed && dbt run`
 works today with zero real source data; the athena target (CI/prod) points at
-this dashboard's real source.database/source.table from config.yaml, which may
+this report's real source.database/source.table from config.yaml, which may
 still be a TBD_* placeholder pending the source data team. See
 backend/dbt_project/ for the project-level dbt_project.yml and profiles.yml that
-tie every dashboard's generated models together (model-paths/seed-paths both
+tie every report's generated models together (model-paths/seed-paths both
 point at ../dashboards, so nothing dbt-related needs to live outside each
-dashboard's own folder except that one shared project file pair).
+report's own folder except that one shared project file pair).
 
 Usage:
-    python scripts/generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml
+    python scripts/generate_dbt_models.py dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml
 """
 import sys
 from pathlib import Path
@@ -1138,6 +1505,10 @@ def build_mart_summary_sql(cfg: dict, config_filename: str) -> str:
     SQL - never in the API layer, which just does SELECT * FROM this model.
     Re-running the generator overwrites hand edits, same caveat as the TODO
     blocks in mart_&lt;id&gt;_queue.sql.
+
+    Caller must check cfg["mart"].get("summary_model_name") is set before
+    calling this - dashboards with api.summary_enabled: false (and therefore
+    no summary_model_name) skip this entirely, see main() below.
     """
     stg = cfg["staging"]["model_name"]
     status_field = cfg["mart"]["status_field"]
@@ -1209,8 +1580,8 @@ def build_sources_yml(cfg: dict, config_filename: str) -> str:
         f"# AUTO-GENERATED by scripts/generate_dbt_models.py from {config_filename}\n"
         f"# Resolves {{{{ source('{src['database']}', '{src['table']}') }}}} (used by the staging\n"
         f"# model) to two different tables depending on dbt target:\n"
-        f"#   - duckdb (local dev) -&gt; dbt/seeds/{seed_identifier}.csv, loaded via `dbt seed`\n"
-        f"#   - athena (CI/prod)   -&gt; the real source.database/source.table in config.yaml,\n"
+        f"#   - duckdb (local dev) -> dbt/seeds/{seed_identifier}.csv, loaded via `dbt seed`\n"
+        f"#   - athena (CI/prod)   -> the real source.database/source.table in config.yaml,\n"
         f"#                          confirm with the source data team before relying on it\n"
         f"version: 2\n"
         f"sources:\n"
@@ -1244,10 +1615,10 @@ def build_seed_csv(cfg: dict, config_filename: str) -> str:
 
 def build_schema_yml(cfg: dict, config_filename: str) -> str:
     pk = cfg["mart"]["primary_key"]
-    status_field = cfg["mart"]["status_field"]
+    status_field = cfg["mart"].get("status_field")
     status_values = cfg["mart"].get("status_values", [])
     queue_model = cfg["mart"]["queue_model_name"]
-    summary_model = cfg["mart"]["summary_model_name"]
+    summary_model = cfg["mart"].get("summary_model_name")
     values_yaml = "\n".join(f'                - "{v}"' for v in status_values)
 
     staging_col_names = [c["name"] for c in cfg["staging"]["columns"]]
@@ -1257,7 +1628,7 @@ def build_schema_yml(cfg: dict, config_filename: str) -> str:
     for name in staging_col_names:
         if name == pk:
             column_blocks.append(f"      - name: {pk}\n        tests: [not_null, unique]")
-        elif name == status_field:
+        elif status_field and name == status_field:
             column_blocks.append(
                 f"      - name: {status_field}\n"
                 f"        tests:\n"
@@ -1273,19 +1644,25 @@ def build_schema_yml(cfg: dict, config_filename: str) -> str:
         column_blocks.append(f"      - name: {dc['name']}{suffix}")
     columns_yaml = "\n".join(column_blocks)
 
-    return f"""# AUTO-GENERATED by scripts/generate_dbt_models.py from {config_filename}
+    out = f"""# AUTO-GENERATED by scripts/generate_dbt_models.py from {config_filename}
 version: 2
 models:
   - name: {queue_model}
     description: "{cfg['display_name']} — one row per {pk}."
     columns:
 {columns_yaml}
-  - name: {summary_model}
+"""
+    # Summary model block only exists if this dashboard has summary_model_name set
+    # (api.summary_enabled: true). Dashboards without a summary chart (e.g. a plain
+    # filterable export table) skip this block entirely.
+    if summary_model:
+        out += f"""  - name: {summary_model}
     description: "{cfg['display_name']} — summary chart data. Default is zero-filled status counts; this dashboard may have hand-edited the SQL for a different aggregation."
     columns:
       - name: {status_field}
       - name: request_count
 """
+    return out
 
 
 def main(config_path: str):
@@ -1293,10 +1670,13 @@ def main(config_path: str):
     cfg = yaml.safe_load(cfg_path.read_text())
     config_filename = str(cfg_path)
 
-    # Output lands inside the same dashboard folder the config came from -
-    # dashboards/&lt;dashboard_id&gt;/dbt/{staging,marts,seeds}/ - so one dashboard = one
-    # self-contained folder with nothing written anywhere else in the repo, except
-    # the shared dbt_project.yml/profiles.yml pair under backend/dbt_project/.
+    # Output lands inside the same report folder the config came from -
+    # dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/{staging,marts,seeds}/ - so one
+    # report = one self-contained folder with nothing written anywhere else in
+    # the repo, except the shared dbt_project.yml/profiles.yml pair under
+    # backend/dbt_project/. This is just cfg_path.parent regardless of how
+    # deep that path is nested, so it didn't need to change when the
+    # service/report folder split was introduced.
     dashboard_dir = cfg_path.parent
     staging_dir = dashboard_dir / "dbt" / "staging"
     marts_dir = dashboard_dir / "dbt" / "marts"
@@ -1312,23 +1692,32 @@ def main(config_path: str):
     (staging_dir / f"{cfg['staging']['model_name']}.sql").write_text(build_staging_sql(cfg, config_filename))
     (staging_dir / f"sources_{dash_id}.yml").write_text(build_sources_yml(cfg, config_filename))
     (marts_dir / f"{cfg['mart']['queue_model_name']}.sql").write_text(build_mart_queue_sql(cfg, config_filename))
-    (marts_dir / f"{cfg['mart']['summary_model_name']}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
+
+    # Summary mart is only generated if this dashboard configured one - dashboards
+    # with api.summary_enabled: false (no mart.summary_model_name) skip it, matching
+    # config_schema.py's validator that only requires summary_model_name when enabled.
+    summary_model_name = cfg["mart"].get("summary_model_name")
+    if summary_model_name:
+        (marts_dir / f"{summary_model_name}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
+
     (marts_dir / f"schema_{dash_id}.yml").write_text(build_schema_yml(cfg, config_filename))
     seed_path.write_text(build_seed_csv(cfg, config_filename))
 
     print(f"Generated dbt models for '{dash_id}' in {dashboard_dir / 'dbt'}")
+    if not summary_model_name:
+        print("  -> no summary_model_name configured - skipped generating a summary mart (summary chart disabled).")
     todo_count = sum(1 for dc in cfg["mart"].get("derived_columns", []) if dc.get("needs_clarification"))
     if todo_count:
-        print(f"  -&gt; {todo_count} derived column(s) need business-rule clarification before this mart is complete.")
+        print(f"  -> {todo_count} derived column(s) need business-rule clarification before this mart is complete.")
     if seed_existed:
-        print(f"  -&gt; {seed_path} already existed and was OVERWRITTEN (header only) - restore any hand-added sample rows.")
+        print(f"  -> {seed_path} already existed and was OVERWRITTEN (header only) - restore any hand-added sample rows.")
     else:
-        print(f"  -&gt; {seed_path} is header-only - add sample rows by hand before `dbt seed` will produce usable local data.")
+        print(f"  -> {seed_path} is header-only - add sample rows by hand before `dbt seed` will produce usable local data.")
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python generate_dbt_models.py dashboards/&lt;dashboard_id&gt;/config.yaml")
+        print("Usage: python generate_dbt_models.py dashboards/&lt;service_id&gt;/&lt;report_id&gt;/config.yaml")
         sys.exit(1)
     main(sys.argv[1])</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <div class="info green">Fixed: the original <code>build_schema_yml()</code> only ever emitted the primary key and status field, so <code>schema_ldc.yml</code> was missing 17 of its 19 columns. It now loops over every staging column and every derived column, so <code>schema.yml</code> is always complete for any dashboard, automatically.</div>
@@ -1336,8 +1725,8 @@ if __name__ == "__main__":
   </div>
 
   <div class="filecard" id="generated-output">
-    <div class="path">Generated output — dashboards/ldc/dbt/staging/stg_ldc_case_requests.sql</div>
-    <div class="purpose">Actual output from running the generator against <code>dashboards/ldc/config.yaml</code> — not hand-written.</div>
+    <div class="path">Generated output — dashboards/ldc/case-management/dbt/staging/stg_ldc_case_requests.sql</div>
+    <div class="purpose">Actual output from running the generator against <code>dashboards/ldc/case-management/config.yaml</code> — not hand-written.</div>
     <pre><code>SELECT
     CAST(request_no AS VARCHAR) AS request_no,
     CAST(status AS VARCHAR) AS request_status,
@@ -1357,9 +1746,9 @@ if __name__ == "__main__":
     CAST(attribute_count AS INTEGER) AS attribute_count
 FROM {{ source('TBD_source_database', 'TBD_ldc_case_requests') }}</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
 
-    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/staging/sources_ldc.yml <span style="color:var(--green);font-weight:400;">— NEW</span></div>
+    <div class="path" style="margin-top:18px;">dashboards/ldc/case-management/dbt/staging/sources_ldc.yml <span style="color:var(--green);font-weight:400;">— NEW</span></div>
     <div class="purpose">Resolves the <code>{{ source(...) }}</code> reference above to two different physical tables depending on dbt target — actual generated output, then hand-filled with the same 3 sample rows shown in the seed CSV below.</div>
-    <pre><code># AUTO-GENERATED by scripts/generate_dbt_models.py from dashboards/ldc/config.yaml
+    <pre><code># AUTO-GENERATED by scripts/generate_dbt_models.py from dashboards/ldc/case-management/config.yaml
 # Resolves {{ source('TBD_source_database', 'TBD_ldc_case_requests') }} (used by the staging
 # model) to two different tables depending on dbt target:
 #   - duckdb (local dev) -> dbt/seeds/seed_ldc_raw.csv, loaded via `dbt seed`
@@ -1373,14 +1762,14 @@ sources:
       - name: TBD_ldc_case_requests
         identifier: "{{ 'seed_ldc_raw' if target.name == 'duckdb' else 'TBD_ldc_case_requests' }}"</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
 
-    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/seeds/seed_ldc_raw.csv <span style="color:var(--green);font-weight:400;">— NEW</span></div>
+    <div class="path" style="margin-top:18px;">dashboards/ldc/case-management/dbt/seeds/seed_ldc_raw.csv <span style="color:var(--green);font-weight:400;">— NEW</span></div>
     <div class="purpose">Generator writes the header row only (same raw <code>source_col</code> names the staging model casts from); the 3 data rows below were filled in by hand so <code>dbt seed</code> produces real local data.</div>
     <pre><code>request_no,status,sub_status,submitter_name,submitter_group,seller_number,seller_name,servicer_number,servicer_name,reviewer_group,reviewer_name,fm_loan_number,submission_date,completion_date,loan_count,attribute_count
 100101,Draft,Draft,Jennifer Lee,External,99887,PennyMac,7721,,Auto-Decision,System,,2026-05-26,,44,0
 100401,Completed,Request Completed,David Smith,Internal,99887,PennyMac,7721,,LDC,David Smith,,2026-05-25,2026-05-25,110,20
 100501,Canceled,Canceled,Michael Brown,Internal,55210,Mr. Cooper,2210,,LDC,Michael Brown,,2026-05-26,,19,3</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
 
-    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/marts/mart_ldc_case_queue.sql</div>
+    <div class="path" style="margin-top:18px;">dashboards/ldc/case-management/dbt/marts/mart_ldc_case_queue.sql</div>
     <pre><code>SELECT
     request_no,
     request_status,
@@ -1404,7 +1793,7 @@ sources:
 FROM {{ ref('stg_ldc_case_requests') }}
 ORDER BY request_no</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
 
-    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/marts/mart_ldc_status_summary.sql</div>
+    <div class="path" style="margin-top:18px;">dashboards/ldc/case-management/dbt/marts/mart_ldc_status_summary.sql</div>
     <div class="info accent" style="margin-top:0;">This is the file <code>router_factory.get_summary()</code> reads from via a plain <code>SELECT *</code> — every status-count and zero-fill below is dbt SQL, not Python.</div>
     <pre><code>-- DEFAULT CHART LOGIC - EDIT FREELY.
 -- This is a generated starting point, not generator-protected output. The
@@ -1442,8 +1831,8 @@ left join counts c using (request_status)
 order by s.request_status</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
     <div class="info green">This is the post-fix version — explicit <code>t(request_status)</code> column alias instead of the original <code>column1</code> reference. Verified via a real <code>dbt run</code>: <code>[('Canceled', 1), ('Completed', 1), ('Draft', 1), ('Exception Review', 0), ('Pending Reclass', 0), ('Rejected', 0)]</code>.</div>
 
-    <div class="path" style="margin-top:18px;">dashboards/ldc/dbt/marts/schema_ldc.yml</div>
-    <pre><code># AUTO-GENERATED by scripts/generate_dbt_models.py from dashboards/ldc/config.yaml
+    <div class="path" style="margin-top:18px;">dashboards/ldc/case-management/dbt/marts/schema_ldc.yml</div>
+    <pre><code># AUTO-GENERATED by scripts/generate_dbt_models.py from dashboards/ldc/case-management/config.yaml
 version: 2
 models:
   - name: mart_ldc_case_queue
@@ -1537,18 +1926,25 @@ async def sync_dashboard(cfg: DashboardConfig):
     # Dumb passthrough, same contract as router_factory.get_summary(): just
     # cache whatever the dbt-built summary mart already computed. No
     # aggregation is recomputed here - that logic lives only in
-    # mart_<id>_summary.sql, once, per dashboard.
-    summary_rows = execute_query(f"SELECT * FROM {summary_mart}")
-    summary_key = make_cache_key(cfg.dashboard_id, cfg.api.summary_endpoint)
-    await cache_set(
-        summary_key,
-        {
-            "title": f"{cfg.display_name} — Summary",
-            "items": summary_rows,
-            "count": len(summary_rows),
-        },
-        ttl=cfg.cache_ttl_seconds,
-    )
+    # mart_&lt;id&gt;_summary.sql, once, per dashboard.
+    #
+    # Gated on summary_mart being set, mirroring router_factory.py's
+    # `if config.api.summary_enabled and summary_mart:` - a report like dlq's
+    # reported-data has no summary mart at all, so there's nothing to sync here.
+    # Without this guard this would run `SELECT * FROM None` for any such
+    # report whose refresh_tier puts it in sync_all()'s schedulable set.
+    if summary_mart:
+        summary_rows = execute_query(f"SELECT * FROM {summary_mart}")
+        summary_key = make_cache_key(cfg.dashboard_id, cfg.api.summary_endpoint)
+        await cache_set(
+            summary_key,
+            {
+                "title": f"{cfg.display_name} — Summary",
+                "items": summary_rows,
+                "count": len(summary_rows),
+            },
+            ttl=cfg.cache_ttl_seconds,
+        )
 
     print(f"[cache-sync] {cfg.dashboard_id}: {len(rows)} rows cached (tier={cfg.refresh_tier})")
 
@@ -1693,7 +2089,7 @@ env:
     AWS_REGION: us-east-1
     ATHENA_SCHEMA: reporting
     DATA_LAYER: athena</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
-    <div class="info warn">No <code>dbt_project.yml</code> exists yet (intentionally — see README), so <code>cd backend/dbt_project</code> above is aspirational. Once one is added, its <code>model-paths</code> needs to point at <code>dashboards</code> instead of a single flat folder, since models now live at <code>dashboards/&lt;id&gt;/dbt/{staging,marts}/</code>. Unconfirmed: whether dbt's yaml loader chokes on each dashboard's non-dbt <code>config.yaml</code> sitting in that same directory tree — flagging rather than guessing.</div>
+    <div class="info green">Confirmed (was previously flagged unconfirmed): <code>backend/dbt_project/dbt_project.yml</code> exists and <code>cd backend/dbt_project</code> above works as written. Its <code>model-paths</code>/<code>seed-paths</code> already point at <code>["../dashboards"]</code>, which resolves correctly however deep a report's <code>dbt/{staging,marts,seeds}/</code> sits under <code>&lt;service_id&gt;/&lt;report_id&gt;/</code> — no flat-folder assumption to fix. dbt's yaml parser also walks into each report's non-dbt <code>config.yaml</code> in that same tree and silently ignores it; verified via real <code>dbt seed</code>/<code>dbt run</code> output, see <a href="#run-dbt">Running dbt</a>.</div>
   </div>
 
   <div class="filecard" id="ghactions">
@@ -1735,7 +2131,7 @@ jobs:
     <pre><code>"""
 End-to-end smoke test for the framework: builds a synthetic DuckDB mart matching
 the LDC config's shape (standing in for what `dbt run` would produce), points
-core.db.connection at it, loads the real dashboards/ldc/config.yaml config through
+core.db.connection at it, loads the real dashboards/ldc/case-management/config.yaml config through
 the real router_factory, and exercises every endpoint via FastAPI's TestClient.
 
 Run with: python tests/test_framework_smoke.py
@@ -1821,6 +2217,21 @@ if __name__ == "__main__":
     </table>
   </div>
 
+  <div class="filecard" id="dlq-smoke-test">
+    <div class="path">tests/test_dlq_smoke.py <span style="color:var(--purple);font-weight:400;">— NEW</span></div>
+    <div class="purpose">Mirrors <code>test_framework_smoke.py</code>'s pattern for <code>dlq</code>, but its real purpose is proving the new optional-endpoint behavior actually works — not just that the queue/filter/export routes respond, but that the <code>/summary</code> route is genuinely <strong>absent</strong>, not present-and-empty.</div>
+    <table>
+      <tr><th>Check</th><th>Result</th></tr>
+      <tr><td>Config loads with <code>api.summary_enabled is False</code> and <code>mart.summary_model_name is None</code></td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td><code>/api/dlq/reported-data</code> returns both seeded rows</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td><code>activity_period</code> (<code>eq</code>) filter narrows to the correct single row</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td><code>/api/dlq/filters/activity_period</code> returns both distinct periods</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td>CSV export respects the filter (header + 1 data row)</td><td><span class="badge badge-verified">PASS</span></td></tr>
+      <tr><td><code>/api/dlq/summary</code> returns a real <code>404</code>, not <code>200</code> — proves no route was registered at all</td><td><span class="badge badge-verified">PASS</span></td></tr>
+    </table>
+    <div class="info green">Separately verified with the real dbt pipeline (not this test's synthetic stand-in): <code>dbt seed</code> loaded 2,600 rows (100 × 26 activity periods) into <code>seed_dlq_raw</code>, <code>dbt run</code> built <code>mart_dlq_reported_data</code> down to exactly <strong>2,400 rows</strong> across 24 distinct periods — confirming the trailing-24-month window excludes exactly the 2 oldest periods (05/2024, 06/2024) and keeps 07/2024–06/2026. <code>dbt test</code> passed the <code>not_null</code> check on <code>fnm_loan_number</code>. Both <code>test_framework_smoke.py</code> (ldc) and <code>test_dlq_smoke.py</code> (dlq) pass in full after these changes — zero regression to the existing dashboard.</div>
+  </div>
+
   <div class="filecard" id="bug-found">
     <div class="path">Bug Found &amp; Fixed — core/cache/client.py</div>
     <div class="purpose">Why this matters: this bug would have shipped silently. No error, no crash — the queue endpoint just would have hit the database on every single call, forever, while everything else about the system looked correct.</div>
@@ -1839,10 +2250,10 @@ if __name__ == "__main__":
     <li>Start Redis (optional — fails open if skipped): <code>redis-server --daemonize yes --port 6379</code></li>
     <li>Hand-seed a local DuckDB mart (see README for the one-liner, or reuse <code>tests/test_framework_smoke.py</code>'s <code>seed_mart()</code>)</li>
     <li>Set env vars: <code>DATA_LAYER=duckdb</code>, <code>DUCKDB_PATH=./fnma.duckdb</code>, <code>REDIS_URL=redis://localhost:6379/0</code>, then <code>uvicorn main:app --reload --port 8000</code></li>
-    <li>Verify: <code>curl localhost:8000/health</code>, <code>/dashboards</code>, <code>/api/ldc/case-queue</code>, <code>/api/ldc/status-summary</code>, or open <code>/docs</code></li>
-    <li>Or skip steps 3–5 entirely: <code>python tests/test_framework_smoke.py</code> does all of it automatically</li>
+    <li>Verify: <code>curl localhost:8000/health</code>, <code>/dashboards</code>, <code>/api/ldc/case-queue</code>, <code>/api/ldc/status-summary</code>, <code>/api/dlq/reported-data</code>, <code>/api/dlq/filters/activity_period</code> — and <code>/api/dlq/summary</code>, which should 404 by design — or open <code>/docs</code> (now lists both dashboards' routes)</li>
+    <li>Or skip steps 3–5 entirely: <code>python tests/test_framework_smoke.py</code> (ldc) / <code>python tests/test_dlq_smoke.py</code> (dlq) do all of it automatically</li>
   </ol>
-  <div class="info green">All of the above was run exactly as written before being documented — every curl call returned correct data, including the status-summary chart with proper zero-counts for unused statuses.</div>
+  <div class="info green">All of the above was run exactly as written before being documented — every curl call returned correct data, including the status-summary chart with proper zero-counts for unused statuses, and the dlq <code>/summary</code> 404 confirming the route is genuinely absent, not empty.</div>
 
   <h2 id="path-b">▶️ Quickstart — Path B (Docker)</h2>
   <ol class="steplist">
@@ -1867,6 +2278,13 @@ dbt test --profiles-dir .</code><button class="copy-btn" onclick="copyCode(this)
   </table>
   <div class="info green">Confirmed (was previously flagged unconfirmed): with <code>model-paths: ["../dashboards"]</code>, dbt's yaml parser walks into each dashboard's <code>config.yaml</code> (a non-dbt file) sitting in that same tree and <strong>silently ignores it — no parse error</strong>. Verified via real <code>dbt seed</code> output: "Found 3 models, 1 seed, 3 data tests, 1 source, 485 macros."</div>
 
+  <h3 style="margin-top:22px;font-size:16px;color:var(--text);">dlq-only fast loop (faster than running every dashboard)</h3>
+  <pre><code>cd backend/dbt_project
+dbt seed --profiles-dir . --select seed_dlq_raw
+dbt run  --profiles-dir . --select stg_dlq_reported_data mart_dlq_reported_data
+dbt test --profiles-dir . --select mart_dlq_reported_data</code><button class="copy-btn" onclick="copyCode(this)">Copy</button></pre>
+  <div class="info green">Run end-to-end this session against the full 2,600-row seed (100 rows × 26 activity periods): <code>mart_dlq_reported_data</code> built with exactly <strong>2,400 rows</strong> after the trailing-24-month window filter (24 of the 26 periods kept, 05/2024 and 06/2024 excluded) — confirms the window logic in <a href="#sql-logic">mart_dlq_reported_data.sql</a> works against real volume, not just the 2-row smoke-test stand-in.</div>
+
   <p style="margin-top:18px;">For the full walkthrough of adding a new dashboard — not just the dbt step — see <a href="#pipeline-1">🪜 The Full Execution Pipeline</a> above, which covers every step from copying the template folder through deployment.</p>
 
   <!-- ============ TROUBLESHOOTING ============ -->
@@ -1874,7 +2292,7 @@ dbt test --profiles-dir .</code><button class="copy-btn" onclick="copyCode(this)
   <table>
     <tr><th>Symptom</th><th>What's actually happening</th><th>Fix</th></tr>
     <tr><td><code>ModuleNotFoundError</code> on startup</td><td>Dependencies aren't installed, or your venv isn't active.</td><td><code>source .venv/bin/activate</code>, then <code>pip install -r backend/requirements.txt</code>.</td></tr>
-    <tr><td>API starts but every endpoint 404s</td><td>Your dashboard folder either isn't under <code>backend/dashboards/</code>, starts with <code>_</code>, or is missing <code>config.yaml</code> — <code>load_all_dashboards()</code> silently skips anything that doesn't match.</td><td>Check <code>curl localhost:8000/dashboards</code> — if your <code>dashboard_id</code> isn't listed, fix the folder name/contents and restart.</td></tr>
+    <tr><td>API starts but every endpoint 404s</td><td>Either your report folder isn't under <code>backend/dashboards/&lt;service_id&gt;/&lt;report_id&gt;/</code>, one of the two levels starts with <code>_</code>, the report is missing <code>config.yaml</code>, or — new failure mode — the <strong>service</strong> folder is missing <code>service.yaml</code>, which raises <code>FileNotFoundError</code> at startup instead of silently skipping (every other mismatch is silently skipped by <code>load_all_dashboards()</code>).</td><td>Check <code>curl localhost:8000/dashboards</code> — if your <code>dashboard_id</code> isn't listed, fix the folder name/contents. If the API won't start at all, check the startup traceback for a missing <code>service.yaml</code> first.</td></tr>
     <tr><td>App crashes on startup with a Pydantic <code>ValidationError</code></td><td>Your <code>config.yaml</code> is missing a required field or used a value <code>config_schema.py</code> doesn't allow (e.g. a typo'd <code>op</code> or <code>refresh_tier</code>).</td><td>The error names the exact field — compare it against <a href="#config-schema">core/config_schema.py</a>'s class definitions, or the annotated <a href="#template-yaml">_template/config.yaml</a>.</td></tr>
     <tr><td><code>duckdb.IOException</code> / "table does not exist"</td><td>No DuckDB mart exists yet at <code>DUCKDB_PATH</code> — nothing has been seeded into it.</td><td>Either run <code>cd backend/dbt_project && dbt seed --profiles-dir . && dbt run --profiles-dir .</code> (see <a href="#run-dbt">Running dbt</a>) or hand-seed it — see the <a href="#pipeline-5">Step 5 workaround</a>.</td></tr>
     <tr><td>Redis errors in the console, but the API still responds</td><td>This is expected, not a bug — <code>cache_get</code>/<code>cache_set</code> fail open by design. The endpoint just always hits the database instead of the cache.</td><td>Ignore for local dev, or start Redis: <code>redis-server --daemonize yes --port 6379</code>.</td></tr>
@@ -1929,7 +2347,7 @@ redis-cli -u $REDIS_URL MONITOR</code><button class="copy-btn" onclick="copyCode
   <h3 style="margin-top:22px;font-size:16px;color:var(--text);">Other backend testing tasks</h3>
   <ul style="font-size:13px;line-height:1.7;color:var(--text);padding-left:20px;">
     <li><strong>Full regression check:</strong> <code>python tests/test_framework_smoke.py</code> — see <a href="#smoke-test">Testing</a> above; this is the baseline before touching anything else.</li>
-    <li><strong>Testing one dashboard in isolation:</strong> reuse <code>seed_mart()</code>'s pattern from the smoke test, but point it at a different dashboard's table names and <code>config.yaml</code>, then only exercise that dashboard's endpoints — useful once a second dashboard exists alongside <code>ldc</code>.</li>
+    <li><strong>Testing one dashboard in isolation:</strong> reuse <code>seed_mart()</code>'s pattern from the smoke test, but point it at a different dashboard's table names and <code>config.yaml</code>, then only exercise that dashboard's endpoints — this is exactly what <a href="#dlq-smoke-test">tests/test_dlq_smoke.py</a> does for <code>dlq</code>, the second dashboard now alongside <code>ldc</code>.</li>
     <li><strong>Verifying the dumb-passthrough contract on a new summary mart:</strong> after <code>dbt run</code>, run <code>SELECT * FROM mart_&lt;id&gt;_summary</code> directly against DuckDB/Athena, then <code>curl /api/&lt;id&gt;/summary</code> and diff the two — the rows must match exactly (modulo JSON key order). This is the fastest way to catch any regression back toward computing aggregations in Python, the exact bug fixed in <a href="#router-factory">router_factory.py</a> this session.</li>
     <li><strong>Testing cache expiry:</strong> <code>GET</code> an endpoint, immediately check <code>TTL</code> on its key (or force it short with <code>redis-cli EXPIRE &lt;key&gt; 1</code>), wait it out, then <code>GET</code> the endpoint again and confirm a fresh MISS via <code>MONITOR</code> or a timing bump.</li>
     <li><strong>Testing fail-open behavior on purpose:</strong> stop Redis mid-session and re-hit any endpoint — it must still return <code>200</code>, just slower and with a console warning, never a <code>500</code>. This is the same behavior the "Bug Found &amp; Fixed" filecard above exists because of — fail-open had been silently hiding a real serialization bug.</li>
@@ -1946,7 +2364,7 @@ redis-cli -u $REDIS_URL MONITOR</code><button class="copy-btn" onclick="copyCode
     <li><strong>Secrets:</strong> <code>buildspec.yml</code> pulls <code>ATHENA_S3_STAGING</code>/<code>REDIS_URL</code> from AWS Secrets Manager via its <code>secrets-manager:</code> block. GitLab's equivalent is either masked/protected CI/CD variables (Settings → CI/CD → Variables) or a Vault/Secrets Manager integration if this org has one configured — unconfirmed which is preferred here.</li>
     <li><strong>AWS auth:</strong> <code>github-actions-deploy.yml</code> uses <code>aws-actions/configure-aws-credentials</code> with <code>role-to-assume</code>. GitLab has no first-party equivalent action; the matching pattern is GitLab's native OIDC → AWS IAM role-assumption (no long-lived AWS keys stored in GitLab), or static <code>AWS_ACCESS_KEY_ID</code>/<code>AWS_SECRET_ACCESS_KEY</code> masked variables as a fallback. OIDC is the closer match to the GitHub Actions role-assumption pattern already in use.</li>
     <li><strong>Runner requirements:</strong> building/pushing the Docker image needs a runner with Docker-in-Docker or Kaniko available. The existing Dockerfile build already requires <code>DOCKER_BUILDKIT=0</code> on the corporate network (per <a href="#dockerfile">deploy/Dockerfile</a>'s note) — unconfirmed whether that same BuildKit restriction applies to whatever GitLab runner this org would use.</li>
-    <li><strong>Per-dashboard scoping:</strong> now that dbt models live under <code>dashboards/&lt;id&gt;/dbt/</code> per dashboard, GitLab's <code>rules: changes:</code> could in principle scope a job to only the dashboard folder(s) that changed in a given push, instead of running <code>dbt run</code>/<code>dbt test</code> against everything every time (which is what both existing files do today). This would be a behavior change from current CI, not a like-for-like port — flagging as an open design question rather than assuming it's wanted.</li>
+    <li><strong>Per-dashboard scoping:</strong> now that dbt models live under <code>dashboards/&lt;service_id&gt;/&lt;report_id&gt;/dbt/</code> per dashboard, GitLab's <code>rules: changes:</code> could in principle scope a job to only the dashboard folder(s) that changed in a given push, instead of running <code>dbt run</code>/<code>dbt test</code> against everything every time (which is what both existing files do today). This would be a behavior change from current CI, not a like-for-like port — flagging as an open design question rather than assuming it's wanted.</li>
     <li><strong>Deploy step:</strong> the same <code>aws ecs update-service --cluster fnma-reporting-cluster --service fnma-reporting-backend --force-new-deployment</code> call from <code>github-actions-deploy.yml</code> would run unchanged from a GitLab job — no GitLab-specific change needed there beyond the auth method above.</li>
   </ul>
 
@@ -1967,7 +2385,7 @@ redis-cli -u $REDIS_URL MONITOR</code><button class="copy-btn" onclick="copyCode
   <h2 id="open-items">🚩 Open Placeholders</h2>
   <table>
     <tr><th>Item</th><th>Where</th><th>Status</th></tr>
-    <tr><td>Cross-account Iceberg <code>database</code>/<code>table</code> names</td><td><code>dashboards/ldc/config.yaml</code> → <code>source</code></td><td>Pending source data team</td></tr>
+    <tr><td>Cross-account Iceberg <code>database</code>/<code>table</code> names</td><td><code>dashboards/ldc/case-management/config.yaml</code> → <code>source</code></td><td>Pending source data team</td></tr>
     <tr><td>Queue Age calculation (calendar vs. business hours)</td><td>Generated mart SQL, flagged TODO</td><td>Needs business rule</td></tr>
     <tr><td>Cycle Time calculation (business-day rule)</td><td>Generated mart SQL, flagged TODO</td><td>Needs business rule</td></tr>
     <tr><td>SLA Status thresholds (Within SLA / At Risk / Breached)</td><td>Generated mart SQL, flagged TODO</td><td>Needs business rule</td></tr>
@@ -1977,6 +2395,9 @@ redis-cli -u $REDIS_URL MONITOR</code><button class="copy-btn" onclick="copyCode
     <tr><td>CodeBuild/CodePipeline vs. GitHub Actions</td><td><code>deploy/buildspec.yml</code> vs. <code>deploy/github-actions-deploy.yml</code></td><td>Confirm which is real</td></tr>
     <tr><td>GitLab CI pipeline (stages, secrets method, runner type, per-dashboard scoping)</td><td>N/A — doesn't exist yet</td><td>Documented design notes only, see <a href="#cicd-notes">CI/CD: GitLab &amp; Terraform</a></td></tr>
     <tr><td>Terraform for ECS/ECR/IAM/Secrets/Redis/networking/state backend</td><td>N/A — zero IaC in repo today</td><td>Documented design notes only, see <a href="#cicd-notes">CI/CD: GitLab &amp; Terraform</a></td></tr>
+    <tr><td>Cross-account Iceberg <code>database</code>/<code>table</code> names for dlq</td><td><code>dashboards/dlq/reported-data/config.yaml</code> → <code>source</code></td><td>Pending source data team — same <code>TBD_*</code> pattern as ldc</td></tr>
+    <tr><td>dlq's <code>refresh_tier: snapshot_eom</code> cadence</td><td><code>dashboards/dlq/reported-data/config.yaml</code></td><td>Chosen to match the source mockup's "Last Updated" batch pattern, not yet confirmed with the business</td></tr>
+    <tr><td>dlq's <code>primary_key: fnm_loan_number</code> is not row-unique (true grain is loan + activity_period)</td><td><code>dashboards/dlq/reported-data/config.yaml</code> → <code>mart</code>, <code>schema_dlq.yml</code></td><td>Accepted project decision — <code>unique</code> test dropped, kept <code>not_null</code> only; revisit with a <code>dbt_utils.unique_combination_of_columns</code> composite test if/when that dependency is added</td></tr>
   </table>
 
   <div style="height:60px;"></div>

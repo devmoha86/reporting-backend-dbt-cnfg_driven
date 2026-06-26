@@ -53,6 +53,10 @@ def seed_mart(db_path: str):
         ('100501','Canceled','Canceled','Michael Brown','Internal','55210','Mr. Cooper',
          '2210',NULL,'LDC','Michael Brown',NULL,'2026-05-26',NULL,19,3,NULL,NULL,'SLA At Risk')
     """)
+    # Seeded directly, the way dbt's mart_ldc_status_summary.sql would build it -
+    # zero-filled across all 6 configured statuses, not derived from the queue
+    # mart at request time. The router/cache-sync layer no longer computes this;
+    # it only does SELECT * FROM this table and passes the rows through.
     con.execute("""
         CREATE TABLE mart_ldc_status_summary (request_status VARCHAR, request_count INTEGER)
     """)
@@ -114,6 +118,9 @@ def main():
     r5 = client.get("/api/ldc/status-summary")
     check("status-summary returns 200", r5.status_code == 200)
     summary = r5.json()
+    # Dumb passthrough contract: the router did SELECT * FROM mart_ldc_status_summary
+    # and returned the rows as-is - this is asserting on the seeded mart's rows,
+    # not on any aggregation computed by the API.
     summary_rows = {row["request_status"]: row["request_count"] for row in summary["items"]}
     check("status-summary passes through all 6 seeded mart rows untouched",
           summary_rows == {"Draft": 1, "Exception Review": 0, "Pending Reclass": 0,

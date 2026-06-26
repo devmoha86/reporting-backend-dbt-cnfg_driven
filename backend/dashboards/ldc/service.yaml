@@ -1,0 +1,16 @@
+# Service-level metadata for the "ldc" service. This file does not drive any
+# routing or dbt logic by itself - it is the explicit, config-driven label for
+# the folder grouping below it, and config_loader.py checks at load time that
+# service_id here matches this folder's name (dashboards/ldc/), and that every
+# report config.yaml under this folder declares service_id: ldc to match.
+#
+# A service is a grouping of one or more reports that share a business owner/
+# source system. Today "ldc" has exactly one report (case-management), but the
+# folder structure supports adding more without any change to this file:
+#   dashboards/ldc/service.yaml
+#   dashboards/ldc/case-management/config.yaml   <- existing report
+#   dashboards/ldc/<new-report-id>/config.yaml     <- a second report, if/when needed
+
+service_id: ldc
+display_name: "Loan Data Correction (LDC)"
+description: "Loan Data Correction case management and related reporting."

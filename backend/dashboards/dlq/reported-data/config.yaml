@@ -1,0 +1,72 @@
+dashboard_id: dlq
+service_id: dlq                        # must match dashboards/dlq/ - the parent folder this lives under
+report_id: reported-data                # must match dashboards/dlq/reported-data/ - this folder
+display_name: "Delinquency Reported Data"
+description: "Counts of delinquency action, status, and reason data, reported by activity period."
+
+refresh_tier: snapshot_eom   # batch/monthly refresh - matches the "Last Updated" timestamp pattern on the source mockup, not live querying
+cache_ttl_seconds: 3600
+
+source:
+  database: TBD_source_database          # placeholder - cross-account Glue/Iceberg database, pending data team
+  table: TBD_dlq_reported_data            # placeholder - source Iceberg table backing the loan/activity-period grain
+  loan_attributes_table: null
+
+staging:
+  model_name: stg_dlq_reported_data
+  columns:
+    - {name: fnm_loan_number,                          type: varchar, source_col: fnm_loan_number}
+    - {name: servicer_loan_identifier,                 type: varchar, source_col: servicer_loan_identifier}
+    - {name: master_servicer_number,                   type: varchar, source_col: master_servicer_number}
+    - {name: master_servicer_name,                     type: varchar, source_col: master_servicer_name}
+    - {name: acting_servicer_number,                    type: varchar, source_col: acting_servicer_number}
+    - {name: acting_servicer_name,                      type: varchar, source_col: acting_servicer_name}
+    - {name: activity_period,                           type: varchar, source_col: activity_period}        # "MM/YYYY" string, e.g. "06/2026"
+    - {name: periods_delinquent,                        type: integer, source_col: periods_delinquent}
+    - {name: servicer_action_type,                      type: varchar, source_col: servicer_action_type}
+    - {name: servicer_action_type_received_dt,          type: date,    source_col: servicer_action_type_received_dt}
+    - {name: conditional_data_attributes_action_type,   type: varchar, source_col: conditional_data_attributes_action_type}
+    - {name: delinquency_status_type_received_date,     type: date,    source_col: delinquency_status_type_received_date}
+    - {name: delinquency_status_type_1,                 type: varchar, source_col: delinquency_status_type_1}
+    - {name: delinquency_status_type_2,                 type: varchar, source_col: delinquency_status_type_2}
+    - {name: delinquency_status_type_3,                 type: varchar, source_col: delinquency_status_type_3}
+    - {name: delinquency_status_type_4,                 type: varchar, source_col: delinquency_status_type_4}
+    - {name: delinquency_status_type_5,                 type: varchar, source_col: delinquency_status_type_5}
+    - {name: delinquency_reason_type_received_date,     type: date,    source_col: delinquency_reason_type_received_date}
+    - {name: delinquency_reason_type_1,                 type: varchar, source_col: delinquency_reason_type_1}
+    - {name: delinquency_reason_type_2,                 type: varchar, source_col: delinquency_reason_type_2}
+    - {name: delinquency_reason_type_3,                 type: varchar, source_col: delinquency_reason_type_3}
+    - {name: delinquency_reason_type_4,                 type: varchar, source_col: delinquency_reason_type_4}
+    - {name: delinquency_reason_type_5,                 type: varchar, source_col: delinquency_reason_type_5}
+
+mart:
+  queue_model_name: mart_dlq_reported_data
+  summary_model_name: null            # no summary chart for this dashboard - just the raw table + export
+  primary_key: fnm_loan_number         # NOTE: not unique per row - true grain is (fnm_loan_number, activity_period).
+                                        # Per project decision, using fnm_loan_number alone and accepting the dbt
+                                        # not_null/unique test on this column will NOT actually hold once a loan
+                                        # has rows across multiple activity periods. Revisit if/when dbt_utils is
+                                        # added to the project (would enable a proper composite-unique test).
+  status_field: null                   # no canonical "status" column for this dashboard - flagged out of scope
+  status_values: []
+  derived_columns: []
+
+api:
+  base_path: /api/dlq
+  queue_endpoint: reported-data         # not a "queue" - this is a filterable raw data table, named to match
+  summary_endpoint: summary             # unused since summary_enabled is false
+  queue_enabled: true
+  summary_enabled: false
+  filters:
+    # default: latest -> a request that omits ?activity_period= entirely gets
+    # the most recent period in the mart instead of every period in the
+    # 24-month window. default_parse_format is required here because
+    # activity_period is stored as "MM/YYYY" text, which does NOT sort
+    # correctly as a plain string (e.g. "06/2026" < "12/2025" lexically).
+    # To deliberately fetch every period, pass ?activity_period= (empty) -
+    # build_filter_clause already treats an empty value as "no filter".
+    - {field: activity_period, param: activity_period, op: eq, default: latest, default_parse_format: "%m/%Y"}
+  default_page_size: 25
+  default_sort: {field: fnm_loan_number, direction: asc}
+  filter_lookup_fields: [activity_period]   # powers the Activity Period dropdown
+  export_enabled: true

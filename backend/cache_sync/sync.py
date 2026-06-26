@@ -44,17 +44,24 @@ async def sync_dashboard(cfg: DashboardConfig):
     # cache whatever the dbt-built summary mart already computed. No
     # aggregation is recomputed here - that logic lives only in
     # mart_<id>_summary.sql, once, per dashboard.
-    summary_rows = execute_query(f"SELECT * FROM {summary_mart}")
-    summary_key = make_cache_key(cfg.dashboard_id, cfg.api.summary_endpoint)
-    await cache_set(
-        summary_key,
-        {
-            "title": f"{cfg.display_name} — Summary",
-            "items": summary_rows,
-            "count": len(summary_rows),
-        },
-        ttl=cfg.cache_ttl_seconds,
-    )
+    #
+    # Gated on summary_mart being set, mirroring router_factory.py's
+    # `if config.api.summary_enabled and summary_mart:` - a report like dlq's
+    # reported-data has no summary mart at all, so there's nothing to sync here.
+    # Without this guard this would run `SELECT * FROM None` for any such
+    # report whose refresh_tier puts it in sync_all()'s schedulable set.
+    if summary_mart:
+        summary_rows = execute_query(f"SELECT * FROM {summary_mart}")
+        summary_key = make_cache_key(cfg.dashboard_id, cfg.api.summary_endpoint)
+        await cache_set(
+            summary_key,
+            {
+                "title": f"{cfg.display_name} — Summary",
+                "items": summary_rows,
+                "count": len(summary_rows),
+            },
+            ttl=cfg.cache_ttl_seconds,
+        )
 
     print(f"[cache-sync] {cfg.dashboard_id}: {len(rows)} rows cached (tier={cfg.refresh_tier})")
 

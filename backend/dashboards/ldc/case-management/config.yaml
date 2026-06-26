@@ -1,4 +1,6 @@
 dashboard_id: ldc
+service_id: ldc                        # must match dashboards/ldc/ - the parent folder this lives under
+report_id: case-management              # must match dashboards/ldc/case-management/ - this folder
 display_name: "LDC Case Management Dashboard"
 description: "Loan Data Correction case queue, status summary, and filters."
 

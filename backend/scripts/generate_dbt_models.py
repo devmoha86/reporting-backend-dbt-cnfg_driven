@@ -9,27 +9,34 @@ config), as a fully editable default in the summary mart (since every dashboard'
 chart aggregation is different), and as actual sample rows in the seed CSV (the
 generator can't invent business data, so it only writes the header row).
 
-Every dashboard is fully self-contained under backend/dashboards/<dashboard_id>/:
-    dashboards/<dashboard_id>/config.yaml                            <- you write this
-    dashboards/<dashboard_id>/dbt/staging/*.sql                       <- this script writes these
-    dashboards/<dashboard_id>/dbt/staging/sources_<dashboard_id>.yml   <- and this
-    dashboards/<dashboard_id>/dbt/marts/*.sql                          <- this script writes these
-    dashboards/<dashboard_id>/dbt/marts/schema_<dashboard_id>.yml      <- and this
-    dashboards/<dashboard_id>/dbt/seeds/seed_<dashboard_id>_raw.csv    <- header only; fill in sample rows by hand
+Every report is fully self-contained under backend/dashboards/<service_id>/<report_id>/
+(a "service" like ldc or dlq is just the folder grouping one or more reports -
+see core/config_schema.py's module docstring):
+    dashboards/<service_id>/<report_id>/config.yaml                            <- you write this
+    dashboards/<service_id>/<report_id>/dbt/staging/*.sql                       <- this script writes these
+    dashboards/<service_id>/<report_id>/dbt/staging/sources_<dashboard_id>.yml   <- and this
+    dashboards/<service_id>/<report_id>/dbt/marts/*.sql                          <- this script writes these
+    dashboards/<service_id>/<report_id>/dbt/marts/schema_<dashboard_id>.yml      <- and this
+    dashboards/<service_id>/<report_id>/dbt/seeds/seed_<dashboard_id>_raw.csv    <- header only; fill in sample rows by hand
+
+Generated filenames are still keyed by dashboard_id, not report_id - dashboard_id
+was already the framework's unique-per-report identifier before the service/
+report folder split, so reusing it here means no generated file had to be
+renamed when that split was introduced.
 
 The generated sources.yml resolves the same {{ source(...) }} reference used by
 the staging model to two different physical tables depending on dbt target: the
 duckdb target (local dev) points at the seed CSV above, so `dbt seed && dbt run`
 works today with zero real source data; the athena target (CI/prod) points at
-this dashboard's real source.database/source.table from config.yaml, which may
+this report's real source.database/source.table from config.yaml, which may
 still be a TBD_* placeholder pending the source data team. See
 backend/dbt_project/ for the project-level dbt_project.yml and profiles.yml that
-tie every dashboard's generated models together (model-paths/seed-paths both
+tie every report's generated models together (model-paths/seed-paths both
 point at ../dashboards, so nothing dbt-related needs to live outside each
-dashboard's own folder except that one shared project file pair).
+report's own folder except that one shared project file pair).
 
 Usage:
-    python scripts/generate_dbt_models.py dashboards/<dashboard_id>/config.yaml
+    python scripts/generate_dbt_models.py dashboards/<service_id>/<report_id>/config.yaml
 """
 import sys
 from pathlib import Path
@@ -86,6 +93,10 @@ def build_mart_summary_sql(cfg: dict, config_filename: str) -> str:
     SQL - never in the API layer, which just does SELECT * FROM this model.
     Re-running the generator overwrites hand edits, same caveat as the TODO
     blocks in mart_<id>_queue.sql.
+
+    Caller must check cfg["mart"].get("summary_model_name") is set before
+    calling this - dashboards with api.summary_enabled: false (and therefore
+    no summary_model_name) skip this entirely, see main() below.
     """
     stg = cfg["staging"]["model_name"]
     status_field = cfg["mart"]["status_field"]
@@ -192,10 +203,10 @@ def build_seed_csv(cfg: dict, config_filename: str) -> str:
 
 def build_schema_yml(cfg: dict, config_filename: str) -> str:
     pk = cfg["mart"]["primary_key"]
-    status_field = cfg["mart"]["status_field"]
+    status_field = cfg["mart"].get("status_field")
     status_values = cfg["mart"].get("status_values", [])
     queue_model = cfg["mart"]["queue_model_name"]
-    summary_model = cfg["mart"]["summary_model_name"]
+    summary_model = cfg["mart"].get("summary_model_name")
     values_yaml = "\n".join(f'                - "{v}"' for v in status_values)
 
     staging_col_names = [c["name"] for c in cfg["staging"]["columns"]]
@@ -205,7 +216,7 @@ def build_schema_yml(cfg: dict, config_filename: str) -> str:
     for name in staging_col_names:
         if name == pk:
             column_blocks.append(f"      - name: {pk}\n        tests: [not_null, unique]")
-        elif name == status_field:
+        elif status_field and name == status_field:
             column_blocks.append(
                 f"      - name: {status_field}\n"
                 f"        tests:\n"
@@ -221,19 +232,25 @@ def build_schema_yml(cfg: dict, config_filename: str) -> str:
         column_blocks.append(f"      - name: {dc['name']}{suffix}")
     columns_yaml = "\n".join(column_blocks)
 
-    return f"""# AUTO-GENERATED by scripts/generate_dbt_models.py from {config_filename}
+    out = f"""# AUTO-GENERATED by scripts/generate_dbt_models.py from {config_filename}
 version: 2
 models:
   - name: {queue_model}
-    description: "{cfg['display_name']} \u2014 one row per {pk}."
+    description: "{cfg['display_name']} — one row per {pk}."
     columns:
 {columns_yaml}
-  - name: {summary_model}
-    description: "{cfg['display_name']} \u2014 summary chart data. Default is zero-filled status counts; this dashboard may have hand-edited the SQL for a different aggregation."
+"""
+    # Summary model block only exists if this dashboard has summary_model_name set
+    # (api.summary_enabled: true). Dashboards without a summary chart (e.g. a plain
+    # filterable export table) skip this block entirely.
+    if summary_model:
+        out += f"""  - name: {summary_model}
+    description: "{cfg['display_name']} — summary chart data. Default is zero-filled status counts; this dashboard may have hand-edited the SQL for a different aggregation."
     columns:
       - name: {status_field}
       - name: request_count
 """
+    return out
 
 
 def main(config_path: str):
@@ -241,10 +258,13 @@ def main(config_path: str):
     cfg = yaml.safe_load(cfg_path.read_text())
     config_filename = str(cfg_path)
 
-    # Output lands inside the same dashboard folder the config came from -
-    # dashboards/<dashboard_id>/dbt/{staging,marts,seeds}/ - so one dashboard = one
-    # self-contained folder with nothing written anywhere else in the repo, except
-    # the shared dbt_project.yml/profiles.yml pair under backend/dbt_project/.
+    # Output lands inside the same report folder the config came from -
+    # dashboards/<service_id>/<report_id>/dbt/{staging,marts,seeds}/ - so one
+    # report = one self-contained folder with nothing written anywhere else in
+    # the repo, except the shared dbt_project.yml/profiles.yml pair under
+    # backend/dbt_project/. This is just cfg_path.parent regardless of how
+    # deep that path is nested, so it didn't need to change when the
+    # service/report folder split was introduced.
     dashboard_dir = cfg_path.parent
     staging_dir = dashboard_dir / "dbt" / "staging"
     marts_dir = dashboard_dir / "dbt" / "marts"
@@ -260,11 +280,20 @@ def main(config_path: str):
     (staging_dir / f"{cfg['staging']['model_name']}.sql").write_text(build_staging_sql(cfg, config_filename))
     (staging_dir / f"sources_{dash_id}.yml").write_text(build_sources_yml(cfg, config_filename))
     (marts_dir / f"{cfg['mart']['queue_model_name']}.sql").write_text(build_mart_queue_sql(cfg, config_filename))
-    (marts_dir / f"{cfg['mart']['summary_model_name']}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
+
+    # Summary mart is only generated if this dashboard configured one - dashboards
+    # with api.summary_enabled: false (no mart.summary_model_name) skip it, matching
+    # config_schema.py's validator that only requires summary_model_name when enabled.
+    summary_model_name = cfg["mart"].get("summary_model_name")
+    if summary_model_name:
+        (marts_dir / f"{summary_model_name}.sql").write_text(build_mart_summary_sql(cfg, config_filename))
+
     (marts_dir / f"schema_{dash_id}.yml").write_text(build_schema_yml(cfg, config_filename))
     seed_path.write_text(build_seed_csv(cfg, config_filename))
 
     print(f"Generated dbt models for '{dash_id}' in {dashboard_dir / 'dbt'}")
+    if not summary_model_name:
+        print("  -> no summary_model_name configured - skipped generating a summary mart (summary chart disabled).")
     todo_count = sum(1 for dc in cfg["mart"].get("derived_columns", []) if dc.get("needs_clarification"))
     if todo_count:
         print(f"  -> {todo_count} derived column(s) need business-rule clarification before this mart is complete.")
@@ -276,6 +305,6 @@ def main(config_path: str):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python generate_dbt_models.py dashboards/<dashboard_id>/config.yaml")
+        print("Usage: python generate_dbt_models.py dashboards/<service_id>/<report_id>/config.yaml")
         sys.exit(1)
     main(sys.argv[1])

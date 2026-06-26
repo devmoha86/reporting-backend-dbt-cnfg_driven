@@ -1,0 +1,74 @@
+# Template for a new REPORT within a service. See dashboards/_template/service.yaml
+# one level up for how to scaffold a brand-new service; this file is the report
+# itself, one level deeper, at dashboards/<service_id>/<report_id>/config.yaml.
+# Folders starting with "_" are ignored by the framework at both levels (so this
+# whole _template/ tree is never registered as a live service/report).
+#
+# Steps to add a new REPORT under an EXISTING service with this template:
+#   1. cp -r dashboards/_template/_template_report dashboards/<service_id>/<report_id>
+#   2. Fill in every field below, including service_id and report_id.
+#   3. python scripts/generate_dbt_models.py dashboards/<service_id>/<report_id>/config.yaml
+#      -> scaffolds dashboards/<service_id>/<report_id>/dbt/staging + dbt/marts SQL + schema.yml,
+#         with TODOs for any business logic flagged needs_clarification: true
+#   4. Fill in the TODOs in the generated SQL (dashboards/<service_id>/<report_id>/dbt/marts/),
+#      then `dbt run`.
+#   5. Restart the API - the new report appears automatically, no Python changes.
+#
+# Everything specific to this report lives inside this one folder - nothing for
+# it is written or edited anywhere else in the repo.
+
+dashboard_id: my_new_dashboard          # short slug - used in routes, cache keys, dbt model names. Must stay
+                                          # globally unique across every report in every service.
+service_id: my_new_service               # must match the parent folder name (dashboards/<service_id>/)
+report_id: my_new_report                 # must match this folder's name (dashboards/<service_id>/<report_id>/)
+display_name: "My New Dashboard"
+description: "One-line description of what this dashboard reports on."
+
+refresh_tier: near_real_time             # near_real_time | snapshot_eod | snapshot_eom | needs_clarification
+cache_ttl_seconds: 3600
+
+source:
+  database: TBD_source_database          # Glue/Iceberg database in the source data team's account
+  table: TBD_source_table                 # Iceberg table backing the request/case grain
+  loan_attributes_table: null              # optional - Iceberg table backing loan-level rollups
+
+staging:
+  model_name: stg_my_new_dashboard
+  columns:
+    - {name: request_no, type: varchar, source_col: request_no}
+    - {name: request_status, type: varchar, source_col: status}
+    # ... add one row per source column you need ...
+
+mart:
+  queue_model_name: mart_my_new_dashboard_queue
+  # Optional - only required if api.summary_enabled is true (default true).
+  # Set to null and api.summary_enabled: false for a report that's just a
+  # filterable raw-data table + export, with no summary chart. See
+  # dashboards/dlq/reported-data/config.yaml for an example of a summary-less report.
+  summary_model_name: mart_my_new_dashboard_summary
+  primary_key: request_no
+  # Optional - only needed if this report has one canonical "status" column
+  # to validate (accepted_values test) and/or roll up into the summary chart.
+  status_field: request_status
+  status_values: ["Draft", "Completed"]    # every value the summary chart should show, even if zero
+  derived_columns: []                       # see dashboards/ldc/case-management/config.yaml for the needs_clarification pattern
+
+api:
+  base_path: /api/my_new_dashboard
+  queue_endpoint: queue
+  summary_endpoint: summary
+  queue_enabled: true                        # set false for a report with no row-level table
+  summary_enabled: true                      # set false for a report with no summary chart
+  # list of {field, param, op: eq|ilike|gte|lte, default, default_parse_format}.
+  # default/default_parse_format are optional - set default: latest on a filter
+  # (typically a period/date-like field) to make the API use the most recent
+  # value present in the mart whenever a request omits that query param. If the
+  # field isn't lexically sortable in its raw string form (e.g. "MM/YYYY", where
+  # "06/2026" < "12/2025" as a plain string), also set default_parse_format to a
+  # strptime format string so "latest" is computed correctly. See
+  # dashboards/dlq/reported-data/config.yaml's activity_period filter for a real example.
+  filters: []
+  default_page_size: 25
+  default_sort: {field: request_no, direction: desc}
+  filter_lookup_fields: []                    # fields that need a dropdown endpoint
+  export_enabled: true
